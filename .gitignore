@@ -1,0 +1,8 @@
+# Build artifacts
+/rbxrt
+/bin/
+/dist/
+
+# Editor/OS
+*.swp
+.DS_Store
