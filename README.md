@@ -48,10 +48,18 @@ RBXRT_TRUSTED_CERTIFICATES=/path/to/list.json rbxrt verify roblox.apk
       parser, v2/v3 signature verification, content-digest integrity, Roblox
       certificate pinning. Fixtures generated with the real Android SDK tools
       (`aapt2`, `zipalign`, `apksigner`) and verifiable with `apksigner`.
-- [ ] `internal/engine` — ELF import/export analysis of `libroblox.so`.
-- [ ] `internal/loader` — map, relocate, resolve shims, call entry.
+- [x] `internal/engine` — ELF import/export/relocation analysis of
+      `libroblox.so` (SysV + Android APS2 packed relocs), dynamic init/fini.
+- [x] `internal/hostabi` — host symbol provider: executable ABI trampolines to
+      native Linux libc/math/syscalls, data objects, dl hooks. Unknown strong
+      functions bind to a trap that aborts naming the symbol.
+- [x] `internal/loader` — map PT_LOAD, apply relocations, per-page protections,
+      RELRO, resolve imports against the image + host, run constructors
+      (`rbxrt load <lib.so> [--init]`). Constructors begin executing against the
+      genuine engine library but do not yet complete (android-native/JNI APIs
+      and general threading/TLS are unimplemented).
 - [ ] `internal/fetch` — APKPure mirror download with digest verification.
-- [ ] CLI (`verify`/`inspect`/`run`/`doctor`).
+- [ ] CLI (`run`/`doctor`; `verify`/`inspect`/`engine`/`load` exist).
 
 ## Development
 
