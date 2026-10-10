@@ -16,15 +16,17 @@ const EnvTrustedCerts = "RBXRT_TRUSTED_CERTIFICATES"
 // certificates that Roblox Corporation signs com.roblox.client with.
 //
 // These are public facts anyone can recompute from any genuine Roblox APK
-// (`openssl dgst -sha256` over the embedded certificate). The value below was
+// (`openssl dgst -sha256` over the embedded certificate). The values below were
 // cross-checked against the trust file of the independent open-source runtime
 // project "Cordial" (packaging/trust/roblox-signing-certificates.json), which
-// records that it was read from a genuine base.apk (Roblox 2.734.0.917,
-// x86_64). Roblox may rotate its signing key; when verification starts failing
-// on an APK that OEMs are serving, add the new digest here — taking a digest
-// from an APK you trust is deliberately a manual, auditable decision.
+// records that they were read from a genuine base.apk (Roblox 2.734.0.917,
+// x86_64). Roblox has rotated its signing key at least once and both digests
+// appear on current builds. Roblox may rotate again; when verification starts
+// failing on an APK that OEMs are serving, add the new digest here — taking a
+// digest from an APK you trust is deliberately a manual, auditable decision.
 var DefaultRobloxCertificates = []string{
 	"44932ea35a17a267372d71b54d1a0cb3da0dca5113e94406ae2fe18090ba1477",
+	"2bebd189e8d3106401347056c93d045b61e20e22d0c3cbed85474aeb00a3d12a",
 }
 
 // TrustedCertificates returns the built-in Roblox certificate list, or the
