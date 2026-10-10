@@ -18,8 +18,12 @@ type dynamic struct {
 	jmprel   uint64
 	pltrelsz uint64
 	pltrel   uint64 // DT_PLTREL: 7 == DT_RELA, 17 == DT_REL
-	init     uint64
-	finitar  uint64
+	init     uint64 // DT_INIT
+	fini     uint64 // DT_FINI
+	initarr  uint64 // DT_INIT_ARRAY
+	initasz  uint64 // DT_INIT_ARRAYSZ (bytes)
+	finiarr  uint64 // DT_FINI_ARRAY
+	finiasz  uint64 // DT_FINI_ARRAYSZ (bytes)
 	gnuhash  uint64
 	sysvhash uint64
 	strsz    uint64
@@ -73,11 +77,22 @@ func (b *Binary) parseDynamic() error {
 			dt.relaent = val
 		case 14: // DT_SONAME
 			b.SOName = cstr(str, uint32(val))
+		case 12: // DT_INIT
+			dt.init = val
+		case 13: // DT_FINI
+			dt.fini = val
 		case 16: // DT_JMPREL
 			dt.jmprel = val
 		case 17: // DT_BIND_NOW
-		case 20: // DT_INIT_ARRAYSZ
-		case 25: // DT_RELACOUNT
+		case 25: // DT_INIT_ARRAY
+			dt.initarr = val
+		case 26: // DT_FINI_ARRAY
+			dt.finiarr = val
+		case 27: // DT_INIT_ARRAYSZ
+			dt.initasz = val
+		case 28: // DT_FINI_ARRAYSZ
+			dt.finiasz = val
+		case 0x6ffffff9: // DT_RELACOUNT
 			dt.relacnt = val
 		case 47, 0x6ffffef5: // DT_FLAGS_1, DT_GNU_HASH
 			if tag == 0x6ffffef5 {
@@ -87,4 +102,16 @@ func (b *Binary) parseDynamic() error {
 	}
 	b.relocInfo = dt
 	return nil
+}
+
+// DynamicInit reports the constructor entry points recorded in the dynamic
+// section: DT_INIT (if non-zero) and the DT_INIT_ARRAY range. All values are
+// virtual addresses before the load bias is applied.
+func (b *Binary) DynamicInit() (init uint64, initArray, initArraySize uint64) {
+	return b.relocInfo.init, b.relocInfo.initarr, b.relocInfo.initasz
+}
+
+// DynamicFini reports the destructor entry points: DT_FINI and DT_FINI_ARRAY.
+func (b *Binary) DynamicFini() (fini uint64, finiArray, finiArraySize uint64) {
+	return b.relocInfo.fini, b.relocInfo.finiarr, b.relocInfo.finiasz
 }

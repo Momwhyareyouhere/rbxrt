@@ -68,6 +68,10 @@ type Binary struct {
 	Imports []*Symbol // undefined dynamic symbols
 	Exports []*Symbol // defined global/weak dynamic symbols
 
+	// SymByIndex maps a dynamic-symbol index (as used by relocation r_info)
+	// to the parsed symbol, whether import, export, or defined-local.
+	SymByIndex map[int]*Symbol
+
 	// Relocations as recorded in the dynamic section.
 	Relocs RelocationSet
 
@@ -355,6 +359,10 @@ func (b *Binary) collectSymbols() {
 		if s.Name == "" && !s.Import {
 			continue
 		}
+		if b.SymByIndex == nil {
+			b.SymByIndex = map[int]*Symbol{}
+		}
+		b.SymByIndex[idx] = s
 		if s.Import {
 			b.Imports = append(b.Imports, s)
 		} else if bind == stbGlobal || bind == stbWeak {

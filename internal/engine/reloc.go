@@ -152,6 +152,10 @@ func (b *Binary) decodePacked(raw []byte, set *RelocationSet) error {
 	}
 	rOffset := d.pop() // initial r_offset value
 
+	// r_offset, r_info and r_addend persist across groups, exactly as AOSP's
+	// for_all_packed_relocs keeps a single `rel` across the whole stream.
+	var rInfo, addend int64
+
 	idx := int64(0)
 	for idx < n {
 		groupSize := d.pop()
@@ -164,16 +168,16 @@ func (b *Binary) decodePacked(raw []byte, set *RelocationSet) error {
 		if groupFlags&packGroupByOffsetDelta != 0 {
 			gDelta = d.pop()
 		}
-		var rInfo int64
 		if groupFlags&packGroupByInfo != 0 {
 			rInfo = d.pop()
 		}
 
-		var addend int64
 		af := groupFlags & (packGroupHasAddend | packGroupByAddend)
 		switch af {
 		case packGroupHasAddend | packGroupByAddend:
-			addend = d.pop() // common addend for the whole group
+			// A single addend delta for the whole group, accumulated into the
+			// running addend (AOSP: reloc.r_addend += pop_front()).
+			addend += d.pop()
 		case packGroupHasAddend:
 			// every relocation carries its own addend delta
 		default:

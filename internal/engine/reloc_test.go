@@ -87,16 +87,17 @@ func TestDecodePacked(t *testing.T) {
 		t.Fatalf("total relocs = %d, want 6", got)
 	}
 
-	// Relative bucket: group1 offset marches 0x10020 -> 0x10040 (each reloc adds
-	// the group delta to the running r_offset), then group3's RELATIVE (sym 0)
-	// lands here too, with addend 100.
+	// Relative bucket: group1 offset marches 0x10020 -> 0x10040. Group3's
+	// second reloc (sym 0) is RELATIVE with a running addend: AOSP's
+	// for_all_packed_relocs keeps a single reloc.r_addend across groups, so it
+	// carries -8 out of group 2 and adds the +100 delta to land at 92.
 	if len(set.Relative) != 3 {
 		t.Fatalf("relative relocs = %d, want 3", len(set.Relative))
 	}
 	wantRel := []struct {
 		off    uint64
 		addend int64
-	}{{0x10020, 0}, {0x10040, 0}, {0x10078, 100}}
+	}{{0x10020, 0}, {0x10040, 0}, {0x10078, 92}}
 	for i, w := range wantRel {
 		if set.Relative[i].Offset != w.off {
 			t.Errorf("relative[%d] offset = %#x, want %#x", i, set.Relative[i].Offset, w.off)
@@ -121,7 +122,9 @@ func TestDecodePacked(t *testing.T) {
 		t.Errorf("GLOB_DAT offsets = %#x,%#x want 0x10048,0x10058", gd[0].Offset, gd[1].Offset)
 	}
 
-	// Group 3 reloc 0: R_X86_64_64 (ABS) sym2, addend 0, at 0x10068.
+	// Group 3 reloc 0: R_X86_64_64 (ABS) sym2 at 0x10068. Its addend is the
+	// running value (-8) carried from group 2, since group 3 has HAS_ADDEND but
+	// not GROUPED_BY_ADDEND and the first per-reloc delta is 0.
 	abs := findRelocs(set.Other, RelocAbs, 2)
 	if len(abs) != 1 {
 		t.Fatalf("ABS(sym2) count = %d, want 1", len(abs))
@@ -129,8 +132,69 @@ func TestDecodePacked(t *testing.T) {
 	if abs[0].Offset != 0x10068 {
 		t.Errorf("ABS offset = %#x, want 0x10068", abs[0].Offset)
 	}
-	if abs[0].Addend != 0 {
-		t.Errorf("ABS addend = %d, want 0", abs[0].Addend)
+	if abs[0].Addend != -8 {
+		t.Errorf("ABS addend = %d, want -8 (running addend from group 2)", abs[0].Addend)
+	}
+}
+
+// TestDecodePackedRunningAddend pins the AOSP rule that a group's addend
+// accumulates into the running reloc.r_addend and is not reset between groups
+// of the same kind. This was the bug that made the genuine libroblox.so
+// init_array relocations decode with large negative addends.
+func TestDecodePackedRunningAddend(t *testing.T) {
+	b := &Binary{Arch: "x86_64"}
+
+	payload := &bytes.Buffer{}
+	payload.WriteString("APS2")
+	payload.Write(sleb128(4))      // 4 relocations
+	payload.Write(sleb128(0x2000)) // initial r_offset
+
+	// Group 1: HAS_ADDEND only (8), size 2. Each reloc body is
+	// [offset delta][rInfo][addend delta]; addend deltas +0x100,+0x100 give
+	// addends 0x100, 0x200.
+	payload.Write(sleb128(2))
+	payload.Write(sleb128(packGroupHasAddend))
+	payload.Write(sleb128(0x100))                          // offset delta
+	payload.Write(sleb128(packRelocInfo(0, rX64Relative))) // rInfo
+	payload.Write(sleb128(0x100))                          // addend delta
+	payload.Write(sleb128(0x100))                          // offset delta
+	payload.Write(sleb128(packRelocInfo(0, rX64Relative))) // rInfo
+	payload.Write(sleb128(0x100))                          // addend delta
+
+	// Group 2: HAS_ADDEND | GROUPED_BY_ADDEND (12), size 2. One addend delta of
+	// +0x100 is added once to the running addend (0x200 -> 0x300); both relocs
+	// in this group share it.
+	payload.Write(sleb128(2))
+	payload.Write(sleb128(packGroupHasAddend | packGroupByAddend))
+	payload.Write(sleb128(0x100))                          // one group addend delta
+	payload.Write(sleb128(0x10))                           // offset delta reloc 0
+	payload.Write(sleb128(packRelocInfo(0, rX64Relative))) // rInfo reloc 0
+	payload.Write(sleb128(0x10))                           // offset delta reloc 1
+	payload.Write(sleb128(packRelocInfo(0, rX64Relative))) // rInfo reloc 1
+
+	var set RelocationSet
+	if err := b.decodePacked(payload.Bytes(), &set); err != nil {
+		t.Fatal(err)
+	}
+	if len(set.Relative) != 4 {
+		t.Fatalf("relative relocs = %d, want 4", len(set.Relative))
+	}
+	want := []struct {
+		off    uint64
+		addend int64
+	}{
+		{0x2100, 0x100},
+		{0x2200, 0x200},
+		{0x2210, 0x300},
+		{0x2220, 0x300},
+	}
+	for i, w := range want {
+		if set.Relative[i].Offset != w.off {
+			t.Errorf("relative[%d] offset = %#x, want %#x", i, set.Relative[i].Offset, w.off)
+		}
+		if set.Relative[i].Addend != w.addend {
+			t.Errorf("relative[%d] addend = %d, want %d", i, set.Relative[i].Addend, w.addend)
+		}
 	}
 }
 
