@@ -2,6 +2,10 @@
 /rbxrt
 /bin/
 /dist/
+/debugreloc
+
+# Scratch data
+/test-instance/
 
 # Editor/OS
 *.swp

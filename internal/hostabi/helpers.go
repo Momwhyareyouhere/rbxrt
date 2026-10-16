@@ -1,8 +1,9 @@
 package hostabi
 
 import (
+	"fmt"
 	"os"
-	"strings"
+	"syscall"
 	"time"
 	"unsafe"
 )
@@ -12,7 +13,11 @@ import (
 var (
 	environSlice []uintptr // char* for each "KEY=VALUE", NUL terminated
 	environVar   uintptr   // char** pointing at environSlice
-	environPtrs  []uintptr
+	// environSym is the storage the dynamic symbol "environ" denotes. C declares
+	// it as `extern char **environ`, so the symbol's value is the address of a
+	// variable holding the array pointer, not the array itself.
+	environSym  uintptr
+	environPtrs []uintptr
 )
 
 func envGet(name string) uintptr {
@@ -27,6 +32,34 @@ func envGet(name string) uintptr {
 }
 
 var envPin [][]byte
+
+var (
+	// guestTCB points to the memory region used as the guest's Thread Control Block
+	// (TCB) when %fs is switched to the guest TCB. The TCB layout mimics the
+	// beginning of pthread_internal_t: we need at least the canary at offset 0x28.
+	guestTCB uintptr
+	// goTLSBase is the value of the FS base register when pointing to the Go TLS
+	// (i.e., the address of the g struct). It is initialized once at startup.
+	goTLSBase uintptr
+)
+
+// initGuestTCB allocates a page for the guest TCB and stores the stack canary
+// at offset 0x28. It must be called before any guest code runs.
+func initGuestTCB() {
+	// Allocate one page of anonymous memory for the TCB.
+	tcbSize := uintptr(syscall.Getpagesize())
+	p, err := syscall.Mmap(-1, 0, int(tcbSize),
+		syscall.PROT_READ|syscall.PROT_WRITE,
+		syscall.MAP_PRIVATE|syscall.MAP_ANON)
+	if err != nil {
+		// Should not happen; if it does, we cannot continue.
+		fmt.Fprintln(os.Stderr, "rbxrt: fatal: failed to map guest TCB")
+		os.Exit(1)
+	}
+	guestTCB = uintptr(unsafe.Pointer(&p[0]))
+	// Store the stack canary at the expected offset.
+	*(*uint64)(unsafe.Pointer(guestTCB + 0x28)) = stackGuard
+}
 
 func envSet(name, value string, overwrite bool) bool {
 	if !overwrite {
@@ -58,6 +91,7 @@ func rebuildEnviron() {
 	environSlice = append(environSlice, 0) // NULL terminator
 	environPtrs = environSlice
 	environVar = uintptr(unsafe.Pointer(&environPtrs[0]))
+	environSym = environVar
 }
 
 // --- misc ----------------------------------------------------------------
@@ -88,4 +122,6 @@ func envLookupString(name string) (string, bool) {
 	return v, ok
 }
 
-var _ = strings.TrimSpace
+func getg() uintptr {
+	return *(*uintptr)(unsafe.Pointer(readFSbase() - 8))
+}

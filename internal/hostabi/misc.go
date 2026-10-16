@@ -191,11 +191,37 @@ func goSchedYield() int {
 	return 0
 }
 
-// We never create guest threads, so join/detach cannot succeed; return ESRCH.
-//
 //go:noinline
-func goPthreadJoin(thread, ret uintptr) int { return 3 }
-func goPthreadDetach(thread uintptr) int    { return 3 }
+func goPthreadJoin(threadp, retp uintptr) int {
+	threadMu.Lock()
+	t := threads[threadp]
+	threadMu.Unlock()
+	if t == nil {
+		return 3 // ESRCH
+	}
+	<-t.done
+	if retp != 0 {
+		*(*uintptr)(unsafe.Pointer(retp)) = t.ret
+	}
+	threadMu.Lock()
+	delete(threads, threadp)
+	threadMu.Unlock()
+	return 0
+}
+
+//go:noinline
+func goPthreadDetach(threadp uintptr) int {
+	threadMu.Lock()
+	t := threads[threadp]
+	if t != nil {
+		t.detached = true
+	}
+	threadMu.Unlock()
+	if t == nil {
+		return 3 // ESRCH
+	}
+	return 0
+}
 
 // pthread_cond_*: the condition is a flag word in bionic's (44-byte) cond
 // storage. cond_wait returns one spurious wakeup after re-acquiring the mutex,

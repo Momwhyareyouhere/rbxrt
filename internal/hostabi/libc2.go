@@ -26,6 +26,24 @@ func goWmemchr(s, c, n uintptr) uintptr {
 }
 
 //go:noinline
+func wcscmp(a, b uintptr) int {
+	for {
+		x := *(*int32)(unsafe.Pointer(a))
+		y := *(*int32)(unsafe.Pointer(b))
+		if x != y {
+			if x < y {
+				return -1
+			}
+			return 1
+		}
+		if x == 0 {
+			return 0
+		}
+		a, b = a+4, b+4
+	}
+}
+
+//go:noinline
 func goWmemcmp(a, b, n uintptr) int {
 	for n > 0 {
 		x := *(*uint32)(unsafe.Pointer(a))

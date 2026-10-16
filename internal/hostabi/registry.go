@@ -112,6 +112,37 @@ var hostFuncs = map[string]any{
 	"__android_log_print":     goAndroidLogPrint,
 	"__android_log_buf_write": goAndroidLogBufWrite,
 
+	// stdio (formatting)
+	"vsnprintf":       goVsnprintf,
+	"__vsnprintf_chk": goVsnprintfChk,
+	"vsprintf":        goVsprintf,
+	"vfprintf":        goVfprintf,
+	"vprintf":         goVprintf,
+	"__vsprintf_chk":  goVsprintfChk,
+	"vsscanf":         goVsscanf,
+
+	// stdio (FILE streams)
+	"fopen": goFopen, "fopen64": goFopen,
+	"fdopen": goFdopen, "fclose": goFclose, "fflush": goFflush,
+	"fread": goFread, "__fread_chk": goFreadChk,
+	"fwrite": goFwrite, "__fwrite_chk": goFwriteChk,
+	"fseek": goFseek, "fseeko": goFseek, "fseeko64": goFseek,
+	"ftell": goFtell, "ftello": goFtell, "ftello64": goFtell,
+	"fgetc": goFgetc, "getc": goFgetc,
+	"fputc": goFputc, "putc": goFputc,
+	"ungetc":   goUngetc,
+	"fgets":    goFgets,
+	"fputs":    goFputs,
+	"puts":     goPuts,
+	"fputwc":   goFputwc,
+	"getwc":    goGetwc,
+	"ungetwc":  goUngetwc,
+	"feof":     goFeof,
+	"ferror":   goFerror,
+	"clearerr": goClearerr,
+	"fileno":   goFileno,
+	"setvbuf":  goSetvbuf,
+
 	// dynamic linker
 	"dlopen": goDlopen, "dlsym": goDlsym, "dlclose": goDlclose,
 	"dlerror": goDlerror, "dladdr": goDladdr, "dl_iterate_phdr": goDlIteratePhdr,
@@ -161,6 +192,7 @@ var hostFuncs = map[string]any{
 	// errno / strerror
 	"__errno":  goErrnoAddr,
 	"strerror": goStrerror,
+	"syscall":  goSyscall,
 
 	// atexit
 	"__cxa_atexit":      goCxaAtexit,
@@ -188,6 +220,91 @@ var hostFuncs = map[string]any{
 
 	// assert / log
 	"__android_log_assert": goAndroidLogAssert,
+
+	// locale
+	"newlocale":  goNewlocale,
+	"freelocale": goFreelocale,
+	"duplocale":  goDuplocale,
+	"uselocale":  goUselocale,
+	"setlocale":  goSetlocale,
+	"localeconv": goLocaleconv,
+	"strcoll_l":  goStrcollL,
+	"strxfrm_l":  goStrxfrmL,
+	"wcscoll_l":  goWcscollL,
+	"wcsxfrm_l":  goWcsxfrmL,
+	"strtoll_l":  goStrtollL,
+	"strtoull_l": goStrtoullL,
+
+	// character classification (narrow)
+	"isspace":  goIsspace,
+	"isalpha":  goIsalpha,
+	"isdigit":  goIsdigit,
+	"isalnum":  goIsalnum,
+	"isupper":  goIsupper,
+	"islower":  goIslower,
+	"isxdigit": goIsxdigit,
+	"isprint":  goIsprint,
+	"isgraph":  goIsgraph,
+	"iscntrl":  goIscntrl,
+	"ispunct":  goIspunct,
+	"isblank":  goIsblank,
+	"tolower":  goTolower,
+	"toupper":  goToupper,
+
+	// character classification (wide) and *_l variants
+	"iswalpha":   goIswalpha,
+	"iswdigit":   goIswdigit,
+	"iswspace":   goIswspace,
+	"iswprint":   goIswprint,
+	"iswblank":   goIswblank,
+	"iswcntrl":   goIswcntrl,
+	"iswupper":   goIswupper,
+	"iswlower":   goIswlower,
+	"iswpunct":   goIswpunct,
+	"iswxdigit":  goIswxdigit,
+	"towupper":   goTowupper,
+	"towlower":   goTowlower,
+	"iswalpha_l": goIswalphaL, "iswdigit_l": goIswdigitL,
+	"iswspace_l": goIswspaceL, "iswprint_l": goIswprintL,
+	"iswblank_l": goIswblankL, "iswcntrl_l": goIswcntrlL,
+	"iswupper_l": goIswupperL, "iswlower_l": goIswlowerL,
+	"iswpunct_l": goIswpunctL, "iswxdigit_l": goIswxdigitL,
+	"towupper_l": goTowupperL, "towlower_l": goTowlowerL,
+
+	// multibyte <-> wide (UTF-8)
+	"mbrtowc":                goMbrtowc,
+	"mbtowc":                 goMbtowc,
+	"mbrlen":                 goMbrlen,
+	"btowc":                  goBtowc,
+	"wctob":                  goWctob,
+	"__ctype_get_mb_cur_max": goCtypeGetMbCurMax,
+	"wcrtomb":                goWcrtomb,
+	"mbsrtowcs":              goMbsrtowcs,
+	"wcsrtombs":              goWcsrtombs,
+	"mbsnrtowcs":             goMbsnrtowcs,
+	"wcsnrtombs":             goWcsnrtombs,
+
+	// additional math
+	"acosf": goAcosF, "asinf": goAsinF, "atanf": goAtanF, "atan2f": goAtan2F,
+	"cbrtf": goCbrtF, "coshf": goCoshF, "sinhf": goSinhF, "tanhf": goTanhF,
+	"erff": goErfF, "erfcf": goErfcF, "exp2f": goExp2F, "log2f": goLog2F,
+	"nextafterf": goNextafterF, "remainderf": goRemainderF, "remquof": goRemquoF,
+	"modff": goModfF, "frexpf": goFrexpF, "ldexpf": goLdexpf, "finitef": goFinitef,
+	"ilogb": goIlogb, "llroundf": goLlroundf, "lroundf": goLroundf,
+	"llround": goLlround, "lround": goLround, "sincos": goSincos, "sincosf": goSincosF,
+	"strtod": goStrtod, "strtod_l": goStrtodL, "strtof": goStrtof, "strtof_l": goStrtofL,
+	"atof": goAtof, "nan": goNan,
+
+	// random numbers, sorting, searching
+	"srand": goSrand, "rand": goRand,
+	"qsort": goQsort, "bsearch": goBsearch,
+	"abs": goAbs, "labs": goLabs, "llabs": goLabs2,
+
+	// time decomposition
+	"gmtime": goGmtime, "gmtime_r": goGmtimeR,
+	"localtime": goLocaltime, "localtime_r": goLocaltimeR,
+	"mktime": goMktime, "difftime": goDifftime,
+	"tzset": goTzset, "clock": goClock,
 }
 
 func init() {
@@ -198,7 +315,29 @@ func init() {
 var (
 	symMu    sync.Mutex
 	symCache map[string]uintptr
+	// rawSyms maps a guest import name directly to a host address. Unlike
+	// hostFuncs (Go implementations reached through thunks), a raw symbol is
+	// bound straight into the guest's GOT, so the engine calls the host function
+	// with the native ABI. The graphics layer uses this for GPU and window-system
+	// entry points, whose argument lists (floating point, more than six integers)
+	// the integer-only thunk marshaller cannot carry.
+	rawSyms = map[string]uintptr{}
 )
+
+// rawResolver is an optional last-chance oracle consulted before a name is
+// bound to a trap thunk. The graphics layer installs one that dlsym()s unknown
+// names from the host GPU libraries, so every gl*/egl* import the engine has is
+// bound to the real Mesa implementation without enumerating them here.
+var rawResolver func(name string) (uintptr, bool)
+
+// RegisterRawSymbol binds a guest import to a host address. Call it before the
+// loader applies relocations; an already-cached resolution is dropped.
+func RegisterRawSymbol(name string, addr uintptr) {
+	symMu.Lock()
+	rawSyms[name] = addr
+	delete(symCache, name)
+	symMu.Unlock()
+}
 
 // Lookup returns the address the link-time resolver should bind name to.
 // implemented reports whether the address is a real implementation; when it is
@@ -212,11 +351,28 @@ func Lookup(name string) (addr uintptr, implemented bool) {
 	if a, ok := symCache[name]; ok {
 		return a, a != 0
 	}
+	if id, ok := variadicID[name]; ok {
+		a := mkVariadicThunk(id)
+		symCache[name] = a
+		arenaMakeExec()
+		return a, true
+	}
 	if fn, ok := hostFuncs[name]; ok {
 		a := mkThunk(funcAddr(fn))
 		symCache[name] = a
 		arenaMakeExec()
 		return a, true
+	}
+	if a, ok := rawSyms[name]; ok {
+		symCache[name] = a
+		return a, true
+	}
+	if rawResolver != nil {
+		if a, ok := rawResolver(name); ok {
+			rawSyms[name] = a
+			symCache[name] = a
+			return a, true
+		}
 	}
 	if d, ok := dataThunks()[name]; ok {
 		symCache[name] = d

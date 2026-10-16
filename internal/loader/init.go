@@ -1,20 +1,33 @@
 package loader
 
 import (
+	"fmt"
+	"os"
+
 	"rbxrt/internal/hostabi"
 )
 
 // RunInit invokes the DSO's constructors in order: DT_INIT first, then each
 // entry of DT_INIT_ARRAY, as bionic does. Guest code runs on the current
-// goroutine's stack.
+// goroutine's stack via the host ABI trampolines.
 //
 // Caveat (documented, not hidden): the garbage collector cannot scan guest
-// frames on the Go stack. We mitigate by minimizing the Go work between guest
-// calls, but the correct long-term model is a dedicated OS thread with a mmap'd
-// guest stack, which is outside this milestone. If guest code grows the stack
-// and triggers a Go stack copy, the runtime may misbehave.
+// frames on the Go stack, so the GC is inhibited globally while the guest runs
+// (see hostabi's init). The host's own allocation during startup is small
+// (measured in the low tens of MB), so letting the heap grow uncollected is
+// acceptable here; the durable fix is a dedicated OS thread with an mmap'd
+// guest stack, which is outside this milestone.
+//
+// When Trace is set, each constructor is reported before it runs so that a
+// fault (e.g. a stack-smashing abort) can be attributed to a specific
+// initializer.
 func (im *Image) RunInit() error {
-	for _, fn := range im.InitFuncs {
+	hostabi.SetGuestBias(im.Bias)
+	for i, fn := range im.InitFuncs {
+		if im.Trace {
+			fmt.Fprintf(os.Stderr, "rbxrt: init[%d/%d] vaddr=0x%x\n",
+				i, len(im.InitFuncs), fn-im.Bias)
+		}
 		hostabi.CallGuestVoid(fn)
 	}
 	return nil

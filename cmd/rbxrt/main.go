@@ -7,7 +7,10 @@
 //	rbxrt manifest <apk>           print the binary AndroidManifest.xml
 //	rbxrt inspect <apk>            signing certificate details
 //	rbxrt engine <libroblox.so>    ELF import/export analysis
-//	rbxrt load <libroblox.so>      map + relocate + resolve + run constructors
+//	rbxrt load <libroblox.so>      map + relocate + resolve + run constructors;
+//	                               [--jni] calls JNI_OnLoad, [--entry] probes
+//	                               the GameActivity app entry point, [--launch]
+//	                               plays the full lifecycle over real graphics
 //	rbxrt run <instance-dir>       launch a Roblox instance     (planned)
 //	rbxrt doctor                   environment diagnostics      (planned)
 package main
@@ -34,6 +37,8 @@ func main() {
 		err = cmdEngine(os.Args[2:])
 	case "load":
 		err = cmdLoad(os.Args[2:])
+	case "run":
+		err = cmdRun(os.Args[2:])
 	case "help", "-h", "--help":
 		usage()
 	default:
@@ -52,7 +57,8 @@ func usage() {
   rbxrt manifest <apk>          print the binary manifest fields
   rbxrt inspect <apk>           print signing certificate details
   rbxrt engine <lib.so> [import NAME...]   ELF import/export/relocation analysis
-  rbxrt load <lib.so> [--init] [--trace]  map + relocate + resolve like bionic, run constructors
+  rbxrt load <lib.so> [--init] [--trace] [--jni] [--entry] [--launch] [--gfx]  map + relocate + resolve like bionic, run constructors, call JNI_OnLoad, probe the app entry, or play the GameActivity lifecycle over real X11/EGL/GLES
+  rbxrt run <instance-dir>      launch a Roblox instance
   rbxrt help                    this text
 `)
 }

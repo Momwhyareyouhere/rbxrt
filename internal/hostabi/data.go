@@ -77,7 +77,7 @@ func DataSymbols() map[string]uintptr {
 		"stdin":             uintptr(unsafe.Pointer(&stdinPtr)),
 		"stdout":            uintptr(unsafe.Pointer(&stdoutPtr)),
 		"stderr":            uintptr(unsafe.Pointer(&stderrPtr)),
-		"environ":           environVar,
+		"environ":           uintptr(unsafe.Pointer(&environSym)),
 		"__stack_chk_guard": uintptr(unsafe.Pointer(&stackGuard)),
 		"optarg":            uintptr(unsafe.Pointer(&optarg)),
 		"optind":            uintptr(unsafe.Pointer(&optind)),

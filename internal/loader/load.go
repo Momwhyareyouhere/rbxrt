@@ -63,6 +63,10 @@ type Image struct {
 	InitFuncs []uintptr // absolute addresses, in DT_INIT then DT_INIT_ARRAY order
 	FiniFuncs []uintptr
 
+	// Trace, when set, makes RunInit report each constructor before it runs so
+	// a fault can be attributed to a specific initializer.
+	Trace bool
+
 	file *os.File
 	fd   int
 }
@@ -102,6 +106,7 @@ func Load(b *engine.Binary, opts Options) (*Image, error) {
 	im := &Image{
 		Eng:     b,
 		Exports: map[string]uintptr{},
+		Trace:   opts.Trace,
 		file:    f,
 		fd:      int(f.Fd()),
 	}
@@ -163,6 +168,9 @@ func (im *Image) mapSegments() error {
 	im.Base = uintptr(reserved)
 	im.Size = uintptr(total)
 	im.End = im.Base + im.Size
+	if im.Trace {
+		fmt.Fprintf(os.Stderr, "rbxrt: load base=%#x bias=%#x size=%#x\n", im.Base, im.Bias, im.Size)
+	}
 
 	// Map file-backed regions (writable for now; final protections are applied
 	// after relocation) and zero-fill BSS.

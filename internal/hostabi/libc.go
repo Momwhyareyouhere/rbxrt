@@ -1,6 +1,10 @@
 package hostabi
 
-import "unsafe"
+import (
+	"fmt"
+	"os"
+	"unsafe"
+)
 
 // This file implements the memory, string and numeric-conversion functions the
 // bionic-compatible host exposes to guest code. Everything works on raw guest
@@ -275,8 +279,39 @@ func goStrrchr(s, c uintptr) uintptr {
 	}
 }
 
+// cstrIs reports whether p points at a NUL-terminated string equal to s.
+//
 //go:noinline
+func cstrIs(p uintptr, s string) bool {
+	for i := 0; i < len(s); i++ {
+		if *(*byte)(unsafe.Pointer(p + uintptr(i))) != s[i] {
+			return false
+		}
+	}
+	return *(*byte)(unsafe.Pointer(p + uintptr(len(s)))) == 0
+}
+
+// cstrN reads at most max bytes of the NUL-terminated string at p.
+func cstrN(p uintptr, max int) string {
+	b := make([]byte, 0, 64)
+	for i := 0; i < max; i++ {
+		c := *(*byte)(unsafe.Pointer(p + uintptr(i)))
+		if c == 0 {
+			break
+		}
+		b = append(b, c)
+	}
+	return string(b)
+}
+
 func goStrstr(hay, needle uintptr) uintptr {
+	// The engine's fatal-error path asks whether its message mentions
+	// "out of memory" before deciding how to report it. That report goes through
+	// telemetry, which the runtime does not implement yet, so the message is
+	// otherwise invisible; surface it here instead.
+	if cstrIs(needle, "out of memory") {
+		fmt.Fprintf(os.Stderr, "rbxrt: fatal message: %q\n", cstrN(hay, 512))
+	}
 	nl := goStrlen(needle)
 	if nl == 0 {
 		return hay
