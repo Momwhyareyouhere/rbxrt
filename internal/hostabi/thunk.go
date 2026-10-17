@@ -20,6 +20,8 @@ import (
 //	MOVQ R10, -16(R11)              ; record return address, per goroutine
 //	MOVQ RBP, R10
 //	MOVQ R10, -8(R11)               ; record frame pointer, per goroutine
+//	MOVQ RSP, R10
+//	MOVQ R10, -24(R11)              ; record caller SP, per goroutine
 //	PUSHQ RBX/RBP/R12/R13/R14/R15   ; save the SysV callee-saved registers
 //	MOVQ FS:-8, R14                 ; load the Go g register (ABIInternal)
 //	MOVQ DI, AX                     ; SysV integer arg 1 -> Go arg 1
@@ -219,6 +221,14 @@ func mkThunk(target uintptr) uintptr {
 	off += 3
 	copy(b[off:], []byte{0x4D, 0x89, 0x53, 0xF8}) // MOVQ R10, -8(R11)
 	off += 4
+	// Record the guest SP too. bionic's syscall() is variadic, so a call with
+	// six syscall arguments (futex needs a bitset as its sixth) leaves the last
+	// one on the stack, out of reach of the register mapping below. SP still
+	// points at the return address here, so that argument is at SP+8.
+	copy(b[off:], []byte{0x49, 0x89, 0xE2}) // MOVQ RSP, R10
+	off += 3
+	copy(b[off:], []byte{0x4D, 0x89, 0x53, 0xE8}) // MOVQ R10, -24(R11)
+	off += 4
 	// Save the SysV callee-saved registers the guest relies on. RBX is Go's
 	// second argument register and R14 is loaded with g, so both would be
 	// clobbered without this prologue.
@@ -271,6 +281,9 @@ func mkThunk(target uintptr) uintptr {
 	off++
 	copy(b[off:], []byte{0x5B}) // POPQ RBX
 	off++
+	if off >= thunkSize {
+		panic("hostabi: host thunk overflowed its code buffer")
+	}
 	b[off] = 0xC3 // RET
 	return uintptr(unsafe.Pointer(&b[0]))
 }

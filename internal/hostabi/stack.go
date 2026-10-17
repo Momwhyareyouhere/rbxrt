@@ -37,14 +37,15 @@ const (
 	// overflow lands in space adjacent to the mapping rather than inside it.
 	guestGuardSize = 1 << 20
 
-	// Every host thunk records the guest return address and frame pointer of its
-	// call site in the guest stack's guard region, two words below the stack's
-	// low bound (base). invokeGuest points g.stack.lo at base for the whole time
-	// guest code runs, so a thunk finds the slot from g alone; see mkThunk.
-	// Per-goroutine storage is what lets a fatal handler name the real caller
-	// while other guest threads are running.
+	// Every host thunk records the guest return address, frame pointer and SP
+	// of its call site in the guest stack's guard region, three words below the
+	// stack's low bound (base). invokeGuest points g.stack.lo at base for the
+	// whole time guest code runs, so a thunk finds the slot from g alone; see
+	// mkThunk. Per-goroutine storage is what lets a fatal handler name the real
+	// caller while other guest threads are running.
 	guestCaptureRetPC = 16 // stored at base - 16
 	guestCaptureRBP   = 8  // stored at base - 8
+	guestCaptureRSP   = 24 // stored at base - 24
 )
 
 // guestStack describes one goroutine's guest stack. The field order and offsets
@@ -128,6 +129,27 @@ func guestCapture() (retPC, rbp uintptr) {
 	}
 	return *(*uintptr)(unsafe.Pointer(gs.base - guestCaptureRetPC)),
 		*(*uintptr)(unsafe.Pointer(gs.base - guestCaptureRBP))
+}
+
+// guestCapturedRSP returns the guest stack pointer at the most recent host
+// thunk entry, or 0 if that thunk was never entered from guest code. Callers
+// that need a C stack argument (bionic's syscall() is variadic, so futex's
+// bitset is passed on the stack rather than in a register) can then read the
+// argument at SP+8, just above the return address. The bounds check keeps a
+// stale slot from being dereferenced when the caller was not a thunk.
+func guestCapturedRSP() uintptr {
+	g := getg()
+	gsMu.Lock()
+	gs := gsMap[g]
+	gsMu.Unlock()
+	if gs == nil || gs.base == 0 {
+		return 0
+	}
+	sp := *(*uintptr)(unsafe.Pointer(gs.base - guestCaptureRSP))
+	if sp < gs.base || sp+8 > gs.top {
+		return 0
+	}
+	return sp
 }
 
 // withGuestStackContext points g.stack at the current goroutine's guest region

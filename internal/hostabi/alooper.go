@@ -92,7 +92,12 @@ func newALooper() *aLooper {
 		syscall.Close(epfd)
 		return nil
 	}
-	return &aLooper{epfd: epfd, wakeR: p[0], wakeW: p[1], fds: map[int]*looperFd{}, refs: 1}
+	lp := &aLooper{epfd: epfd, wakeR: p[0], wakeW: p[1], fds: map[int]*looperFd{}, refs: 1}
+	if debugLooper {
+		fmt.Fprintf(os.Stderr, "rbxrt: newALooper looper=%#x epfd=%d wakeR=%d wakeW=%d\n",
+			looperHandle(lp), lp.epfd, lp.wakeR, lp.wakeW)
+	}
+	return lp
 }
 
 // looperHandle returns the opaque value handed to guest code for lp.
@@ -103,6 +108,16 @@ func looperAt(h uintptr) *aLooper {
 	looperMu.Lock()
 	defer looperMu.Unlock()
 	return looperAll[h]
+}
+
+// looperForThread returns the calling thread's looper, which is what
+// ALooper_pollOnce and ALooper_pollAll operate on: neither takes a looper
+// argument, unlike addFd/removeFd/wake.
+func looperForThread() *aLooper {
+	g := getg()
+	looperMu.Lock()
+	defer looperMu.Unlock()
+	return looperByG[g]
 }
 
 // --- NDK entry points ----------------------------------------------------
@@ -154,7 +169,7 @@ func goALooperPrepare(opts uintptr) uintptr {
 	}
 	looperMu.Unlock()
 	if debugLooper {
-		fmt.Fprintf(os.Stderr, "rbxrt: ALooper_prepare(opts=%#x) -> %#x\n", opts, looperHandle(lp))
+		fmt.Fprintf(os.Stderr, "rbxrt: ALooper_prepare(opts=%#x) -> %#x g=%#x\n", opts, looperHandle(lp), g)
 	}
 	return looperHandle(lp)
 }
@@ -205,8 +220,8 @@ func goALooperAddFd(h, fd, ident, events, callback, data uintptr) int {
 		return -1
 	}
 	if debugLooper {
-		fmt.Fprintf(os.Stderr, "rbxrt: ALooper_addFd(looper=%#x fd=%d ident=%d events=%#x cb=%#x data=%#x)\n",
-			h, f, int64(ident), events, callback, data)
+		fmt.Fprintf(os.Stderr, "rbxrt: ALooper_addFd(looper=%#x fd=%d ident=%d events=%#x cb=%#x data=%#x g=%#x)\n",
+			h, f, int64(ident), events, callback, data, getg())
 	}
 	return 1
 }
@@ -239,16 +254,17 @@ func goALooperWake(h uintptr) {
 }
 
 //go:noinline
-func goALooperPollOnce(h, timeoutMillis, outFd, outEvents, outData uintptr) int {
-	lp := looperAt(h)
+func goALooperPollOnce(timeoutMillis, outFd, outEvents, outData uintptr) int {
+	lp := looperForThread()
 	if lp == nil {
 		return aLooperPollError
 	}
+	h := looperHandle(lp)
 	timeout := int(int64(timeoutMillis))
 	if debugLooper {
 		looperPollCount++
-		if looperPollCount%50000 == 1 {
-			fmt.Fprintf(os.Stderr, "rbxrt: ALooper_pollOnce h=%#x timeout=%d n=%d\n", h, timeout, looperPollCount)
+		if looperPollCount <= 10 || looperPollCount%50000 == 1 {
+			fmt.Fprintf(os.Stderr, "rbxrt: ALooper_pollOnce h=%#x timeout=%d n=%d g=%#x\n", h, timeout, looperPollCount, getg())
 		}
 	}
 	events := make([]syscall.EpollEvent, 16)
@@ -259,9 +275,11 @@ func goALooperPollOnce(h, timeoutMillis, outFd, outEvents, outData uintptr) int 
 				continue
 			}
 			fmt.Fprintf(os.Stderr, "rbxrt: ALooper_pollOnce: epoll_wait: %v\n", err)
+			clearPollOut(outFd, outEvents, outData)
 			return aLooperPollError
 		}
 		if n == 0 {
+			clearPollOut(outFd, outEvents, outData)
 			return aLooperPollTimeout
 		}
 
@@ -290,13 +308,23 @@ func goALooperPollOnce(h, timeoutMillis, outFd, outEvents, outData uintptr) int 
 				callbacks = append(callbacks, pending{fd: fd, events: evs, req: req})
 				continue
 			}
-			// No callback: report the fd (and its data) to the caller.
+			// No callback: report the fd (and its data) to the caller and
+			// return its ident, exactly as Looper::pollOnce does. Each output
+			// is guarded individually because callers legitimately pass NULL
+			// for the ones they do not want: native_app_glue polls with
+			// outFd == NULL and reads `ident` plus *outData instead. The
+			// report must happen even so, or the fd stays readable, epoll_wait
+			// returns it again immediately, and this loop never makes progress.
 			if outFd != 0 {
 				st32(outFd, uint32(int32(req.ident)))
-				st32(outEvents, uint32(int32(evs)))
-				stPtr(outData, req.data)
-				return req.ident
 			}
+			if outEvents != 0 {
+				st32(outEvents, uint32(int32(evs)))
+			}
+			if outData != 0 {
+				stPtr(outData, req.data)
+			}
+			return req.ident
 		}
 
 		// Invoke callbacks without holding lp.mu: a callback is guest code and
@@ -312,22 +340,41 @@ func goALooperPollOnce(h, timeoutMillis, outFd, outEvents, outData uintptr) int 
 		}
 
 		if woke {
+			clearPollOut(outFd, outEvents, outData)
 			return aLooperPollWake
 		}
 		if len(callbacks) > 0 {
+			clearPollOut(outFd, outEvents, outData)
 			return aLooperPollCallback
 		}
 		// Only unknown fds were reported; keep waiting if we are allowed to.
 		if timeout == 0 {
+			clearPollOut(outFd, outEvents, outData)
 			return aLooperPollTimeout
 		}
 	}
 }
 
+// clearPollOut mirrors Looper::pollOnce, which zeroes the out parameters before
+// returning any result other than a file descriptor's ident. native_app_glue
+// relies on this: it treats a non-negative return as "a source is ready" and
+// dereferences *outData, so a stale pointer there would be a wild read.
+func clearPollOut(outFd, outEvents, outData uintptr) {
+	if outFd != 0 {
+		st32(outFd, 0)
+	}
+	if outEvents != 0 {
+		st32(outEvents, 0)
+	}
+	if outData != 0 {
+		stPtr(outData, 0)
+	}
+}
+
 //go:noinline
-func goALooperPollAll(h, timeoutMillis, outFd, outEvents, outData uintptr) int {
+func goALooperPollAll(timeoutMillis, outFd, outEvents, outData uintptr) int {
 	for {
-		r := goALooperPollOnce(h, timeoutMillis, outFd, outEvents, outData)
+		r := goALooperPollOnce(timeoutMillis, outFd, outEvents, outData)
 		if r != aLooperPollCallback {
 			return r
 		}

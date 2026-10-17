@@ -2,10 +2,12 @@ package hostabi
 
 import (
 	"crypto/rand"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 	"unsafe"
@@ -79,9 +81,32 @@ func rawSys6(trap, a, b, c, d, e, f uintptr) uintptr {
 //
 //go:noinline
 func goSyscall(number, a1, a2, a3, a4, a5 uintptr) uintptr {
-	r, _, _ := syscall.RawSyscall6(number, a1, a2, a3, a4, a5, 0)
+	// bionic's syscall() is variadic. Our thunk forwards the six integer
+	// argument registers, but a call with a seventh C argument (futex's
+	// trailing val3, the bitset for FUTEX_WAIT_BITSET/FUTEX_WAKE_BITSET) passes
+	// it on the stack; without it the kernel rejects the wait and the caller
+	// spins. Recover the argument from the guest SP recorded at thunk entry.
+	var a6 uintptr
+	if sp := guestCapturedRSP(); sp != 0 {
+		a6 = *(*uintptr)(unsafe.Pointer(sp + 8))
+	}
+	r, _, err := syscall.RawSyscall6(number, a1, a2, a3, a4, a5, a6)
+	if debugSys && number == 202 { // futex
+		n := atomic.AddUint64(&futexCallCount, 1)
+		if n <= 8 || n%1000000 == 0 {
+			var to string
+			if a4 != 0 {
+				to = fmt.Sprintf("ts={%d,%d}", *(*int64)(unsafe.Pointer(a4)), *(*int64)(unsafe.Pointer(a4 + 8)))
+			}
+			fmt.Fprintf(os.Stderr, "rbxrt: futex uaddr=%#x op=%#x val=%#x to=%#x %s val3=%#x r=%d err=%v nowUs=%d n=%d\n",
+				a1, a2, a3, a4, to, a6, int64(r), err, hostMonotonicNowNanos(1)/1000, n)
+		}
+	}
 	return r
 }
+
+var debugSys = os.Getenv("RBXRT_DEBUG_SYS") != ""
+var futexCallCount uint64
 
 func st64(dst uintptr, v uint64) { *(*uint64)(unsafe.Pointer(dst)) = v }
 func st32(dst uintptr, v uint32) { *(*uint32)(unsafe.Pointer(dst)) = v }
@@ -286,12 +311,22 @@ func goMallinfo(buf uintptr) uintptr {
 
 //go:noinline
 func goPipe(fds uintptr) int {
-	return int(int64(rawSys(nSysPipe, fds, 0, 0)))
+	r := int(int64(rawSys(nSysPipe, fds, 0, 0)))
+	if debugSys && r == 0 && fds != 0 {
+		fmt.Fprintf(os.Stderr, "rbxrt: pipe -> [%d,%d]\n",
+			int(*(*int32)(unsafe.Pointer(fds))), int(*(*int32)(unsafe.Pointer(fds + 4))))
+	}
+	return r
 }
 
 //go:noinline
 func goPipe2(fds, flags uintptr) int {
-	return int(int64(rawSys(nSysPipe2, fds, flags, 0)))
+	r := int(int64(rawSys(nSysPipe2, fds, flags, 0)))
+	if debugSys && r == 0 && fds != 0 {
+		fmt.Fprintf(os.Stderr, "rbxrt: pipe2 flags=%#x -> [%d,%d]\n", flags,
+			int(*(*int32)(unsafe.Pointer(fds))), int(*(*int32)(unsafe.Pointer(fds + 4))))
+	}
+	return r
 }
 
 //go:noinline

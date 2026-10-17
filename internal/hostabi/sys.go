@@ -365,7 +365,7 @@ func goClockGettime(clockid, tp uintptr) int {
 	if tp != 0 {
 		var sec, nsec int64
 		if isMonotonic(int(clockid)) {
-			ns := time.Duration(monotonicNowNanos())
+			ns := time.Duration(hostMonotonicNowNanos(int(clockid)))
 			sec = int64(ns / time.Second)
 			nsec = int64(ns % time.Second)
 		} else {

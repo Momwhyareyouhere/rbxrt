@@ -99,8 +99,38 @@ func rebuildEnviron() {
 var processStart = time.Now()
 
 // monotonicNowNanos returns nanoseconds from a process-relative monotonic
-// clock. Guest code uses CLOCK_MONOTONIC only for measuring elapsed time.
+// clock. Only for callers that genuinely want elapsed process time (POSIX
+// clock()). Anything the guest may hand back to the kernel must use the
+// kernel-frame clock below instead.
 func monotonicNowNanos() int64 { return int64(time.Since(processStart)) }
+
+// hostClockOffset[id] = (host kernel clock id in ns) - (process-relative
+// monotonic reading), sampled once at startup. Guest code reads these clocks
+// with clock_gettime and then hands the *absolute* result straight to real
+// kernel syscalls: FUTEX_WAIT_BITSET timeouts, timerfd_settime(TFD_TIMER_ABSTIME)
+// and clock_nanosleep(TIMER_ABSTIME). The kernel evaluates those against its own
+// clock, so a process-relative value (a few seconds since exec) is already long
+// expired against the real CLOCK_MONOTONIC (seconds since boot) - every timed
+// wait returns ETIMEDOUT at once and the caller spins. Go's monotonic clock is
+// the same CLOCK_MONOTONIC the kernel uses, so one offset per clock is exact
+// and the clock_gettime hot path needs no syscall of its own.
+var hostClockOffset [8]int64
+
+func init() {
+	for _, id := range [...]int{1 /*MONOTONIC*/, 4 /*MONOTONIC_RAW*/, 6 /*MONOTONIC_COARSE*/, 7 /*BOOTTIME*/} {
+		var ts syscall.Timespec
+		if _, _, e := syscall.RawSyscall(syscall.SYS_CLOCK_GETTIME,
+			uintptr(id), uintptr(unsafe.Pointer(&ts)), 0); e == 0 {
+			hostClockOffset[id] = int64(ts.Sec)*1e9 + int64(ts.Nsec) - int64(time.Since(processStart))
+		}
+	}
+}
+
+// hostMonotonicNowNanos returns nanoseconds on monotonic clock clockid in the
+// host kernel's frame (what the guest must observe).
+func hostMonotonicNowNanos(clockid int) int64 {
+	return int64(time.Since(processStart)) + hostClockOffset[clockid&7]
+}
 
 func getauxval(kind uintptr) uintptr {
 	switch kind {
