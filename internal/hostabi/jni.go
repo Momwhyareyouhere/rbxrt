@@ -127,10 +127,49 @@ func JavaVM() uintptr {
 	return jniVMAddr
 }
 
-// JNIEnvAddr returns the guest-visible JNIEnv* the VM hands out.
+// JNIEnvAddr returns the guest-visible JNIEnv* the VM hands out for the
+// current thread.
+//
+// A guest thread is modelled as a goroutine, and a JNIEnv is thread-specific:
+// each thread must observe its own *env slot. This matters because the engine's
+// generated bindings cache the interface table in *env — function 0x6d25f14
+// writes *env = <per-thread table> after copying the caller's table into its
+// own storage. With one shared slot, the first thread to run that code replaced
+// every other thread's view of the table, so a later thread dereferenced the
+// wrong entry (slot 228, which the generated table points back at the telemetry
+// wrapper) and recursed into it until the re-entrancy guard fired _Exit(1000).
+// A distinct slot per thread isolates that write.
 func JNIEnvAddr() uintptr {
 	jniOnce.Do(jniInit)
-	return jniEnvAddr
+	return envSlotForCurrentThread()
+}
+
+// envSlotByG maps a goroutine's g pointer to its own JNIEnv slot: a single
+// uintptr holding the interface-table base. Entries live as long as the guest
+// thread does; releaseEnvSlot clears one when the goroutine exits so the reused
+// g struct cannot inherit a stale env.
+var (
+	envSlotMu  sync.Mutex
+	envSlotByG = map[uintptr]*uintptr{}
+)
+
+func envSlotForCurrentThread() uintptr {
+	g := getg()
+	envSlotMu.Lock()
+	p := envSlotByG[g]
+	if p == nil {
+		p = new(uintptr)
+		*p = jniEnvSlot
+		envSlotByG[g] = p
+	}
+	envSlotMu.Unlock()
+	return uintptr(unsafe.Pointer(p))
+}
+
+func releaseEnvSlot(g uintptr) {
+	envSlotMu.Lock()
+	delete(envSlotByG, g)
+	envSlotMu.Unlock()
 }
 
 func jniInit() {
@@ -370,7 +409,7 @@ func jniVMFn(idx, vm, a1, a2 uintptr) uintptr {
 	switch idx {
 	case jniGetEnv, jniAttachCurrentThread, jniAttachCurrentThreadAsDaemon:
 		if a1 != 0 {
-			stPtr(a1, jniEnvAddr)
+			stPtr(a1, envSlotForCurrentThread())
 		}
 		return 0
 	case jniDetachCurrentThread, jniDestroyJavaVM:

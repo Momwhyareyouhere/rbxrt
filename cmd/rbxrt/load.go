@@ -285,7 +285,7 @@ func launchGameActivity(handle uintptr) error {
 		var args [8]uintptr
 		args[0], args[1] = env, thiz
 		copy(args[2:], a)
-		fmt.Printf("launch: step %d %s(handle=%#x%s)\n", i, name, handle, argNote(a))
+		fmt.Printf("launch: step %d %s(handle=%#x%s) fn=%#x\n", i, name, handle, argNote(a), fn)
 		rv := hostabi.CallGuestInt8(fn, args[0], args[1], args[2], args[3],
 			args[4], args[5], args[6], args[7])
 		fmt.Printf("launch: step %d %s returned %#x\n", i, name, rv)

@@ -4,6 +4,7 @@ import (
 	"math"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"unsafe"
 )
@@ -223,51 +224,83 @@ func goPthreadDetach(threadp uintptr) int {
 	return 0
 }
 
-// pthread_cond_*: the condition is a flag word in bionic's (44-byte) cond
-// storage. cond_wait returns one spurious wakeup after re-acquiring the mutex,
-// which POSIX permits, so single-threaded guests never spin forever.
+// pthread_cond_*: bionic's condvar is storage the guest only touches through
+// these entry points (statically initialised, or via cond_init), so its first
+// 4 bytes double as a generation counter used as a futex word. Signal/broadcast
+// bump the counter and wake waiters; wait blocks in the kernel on the counter
+// value read before releasing the mutex, so a signal either changes the value
+// (making the wait return immediately) or wakes the blocked waiter - never
+// lost. timedwait uses FUTEX_WAIT_BITSET with FUTEX_CLOCK_REALTIME, because
+// pthread_cond_timedwait's abstime is an absolute CLOCK_REALTIME deadline.
 //
+// The counter scheme requires the word to be 4-byte aligned (pthread_cond_t
+// is) and not otherwise interpreted by the guest (it is not).
+
 //go:noinline
-func goCondInit(cond, attr uintptr) int { return 0 }
+func goCondInit(cond, attr uintptr) int {
+	*futexWord(cond) = 0
+	return 0
+}
 
 //go:noinline
 func goCondDestroy(cond uintptr) int { return 0 }
 
 //go:noinline
 func goCondSignal(cond uintptr) int {
-	atomicStoreFlag(cond, 1)
+	atomic.AddUint32(futexWord(cond), 1)
+	futexDo(cond, futexOpWake, 1, 0)
 	return 0
 }
 
 //go:noinline
 func goCondBroadcast(cond uintptr) int {
-	atomicStoreFlag(cond, 1)
+	atomic.AddUint32(futexWord(cond), 1)
+	futexDo(cond, futexOpWake, 1<<31-1, 0)
 	return 0
 }
 
 //go:noinline
 func goCondWait(cond, mutex uintptr) int {
-	atomicStoreFlag(cond, 0)
+	v := atomic.LoadUint32(futexWord(cond))
 	goPthreadMutexUnlock(mutex)
+	futexDo(cond, futexOpWait, uintptr(v), 0)
 	goPthreadMutexLock(mutex)
 	return 0
 }
 
 //go:noinline
 func goCondTimedwait(cond, mutex, abstime uintptr) int {
-	if abstime != 0 {
-		sec := *(*int64)(unsafe.Pointer(abstime))
-		nsec := *(*int64)(unsafe.Pointer(abstime + 8))
-		now := monotonicNowNanos()
-		if sec < now/1e9 || (sec == now/1e9 && nsec <= now%1e9) {
-			return 110 // ETIMEDOUT
-		}
+	v := atomic.LoadUint32(futexWord(cond))
+	goPthreadMutexUnlock(mutex)
+	var e syscall.Errno
+	if abstime == 0 {
+		e = futexDo(cond, futexOpWait, uintptr(v), 0)
+	} else {
+		e = futexDo(cond, futexOpWaitBitset|futexClockRealtime, uintptr(v), abstime)
 	}
-	return goCondWait(cond, mutex)
+	goPthreadMutexLock(mutex)
+	if e == syscall.ETIMEDOUT {
+		return 110
+	}
+	return 0
 }
 
-func atomicStoreFlag(p uintptr, v uint32) {
-	*(*uint32)(unsafe.Pointer(p)) = v
+// Futex operations and the shared generation word.
+const (
+	futexOpWait         = 0          // FUTEX_WAIT
+	futexOpWake         = 1          // FUTEX_WAKE
+	futexOpWaitBitset   = 9          // FUTEX_WAIT_BITSET
+	futexClockRealtime  = 256        // FUTEX_CLOCK_REALTIME
+	futexBitsetMatchAny = 0xffffffff // FUTEX_BITSET_MATCH_ANY
+)
+
+func futexWord(cond uintptr) *uint32 { return (*uint32)(unsafe.Pointer(cond)) }
+
+// futexDo performs a futex syscall. val3 (the bitset) is only meaningful for
+// FUTEX_WAIT_BITSET and is ignored by the other operations.
+func futexDo(uaddr, op, val, timeout uintptr) syscall.Errno {
+	_, _, e := syscall.Syscall6(syscall.SYS_FUTEX, uaddr, op, val, timeout, 0, futexBitsetMatchAny)
+	return e
 }
 
 //go:noinline

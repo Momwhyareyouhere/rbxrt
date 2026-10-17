@@ -174,14 +174,44 @@ func dladdr(addr uintptr, info uintptr) int {
 func dliteratephdr(cb uintptr, data uintptr) int {
 	var info [64]byte
 	for _, im := range Images() {
-		phdrs := im.Eng.File.Progs
+		// im.Eng.File is a *debug/elf.File whose Progs field is []*elf.Prog, a
+		// slice of Go pointers. The guest callback (glibc/libgcc's
+		// _Unwind_Find_FDE) expects dlpi_phdr to point at a *contiguous array of
+		// raw Elf64_Phdr* — the file's program-header table. Handing it the Go
+		// pointer slice made it read pointers as Phdr fields, so no module ever
+		// matched, EH frames were never found, and every C++ exception unwound
+		// to std::terminate. Serialize the headers explicitly (endian-correct,
+		// independent of Go struct layout) into one flat byte slice.
+		const phdrSize = 56 // sizeof(Elf64_Phdr)
+		progs := im.Eng.File.Progs
+		raw := make([]byte, phdrSize*len(progs))
+		bo := im.Eng.File.ByteOrder
+		for i, p := range progs {
+			o := i * phdrSize
+			bo.PutUint32(raw[o+0:], uint32(p.Type))
+			bo.PutUint32(raw[o+4:], uint32(p.Flags))
+			bo.PutUint64(raw[o+8:], p.Off)
+			bo.PutUint64(raw[o+16:], p.Vaddr)
+			bo.PutUint64(raw[o+24:], p.Paddr)
+			bo.PutUint64(raw[o+32:], p.Filesz)
+			bo.PutUint64(raw[o+40:], p.Memsz)
+			bo.PutUint64(raw[o+48:], p.Align)
+		}
+		var phdrPtr uintptr
+		if len(raw) > 0 {
+			phdrPtr = uintptr(unsafe.Pointer(&raw[0]))
+		}
 		*(*uintptr)(unsafe.Pointer(&info[0])) = uintptr(im.Bias)
 		*(*uintptr)(unsafe.Pointer(&info[8])) = hostabi.CString(im.Eng.Path)
-		*(*uintptr)(unsafe.Pointer(&info[16])) = uintptr(unsafe.Pointer(&phdrs[0]))
-		*(*uint16)(unsafe.Pointer(&info[24])) = uint16(len(phdrs))
+		*(*uintptr)(unsafe.Pointer(&info[16])) = phdrPtr
+		*(*uint16)(unsafe.Pointer(&info[24])) = uint16(len(progs))
 		info[28] = 0 // padding
-		if hostabi.CallGuestInt3(cb, uintptr(unsafe.Pointer(&info[0])), 64, data) != 0 {
-			return 0
+		rc := hostabi.CallGuestInt3(cb, uintptr(unsafe.Pointer(&info[0])), 64, data)
+		if rc != 0 {
+			// glibc/bionic dl_iterate_phdr returns the callback's non-zero
+			// value (the caller uses it to confirm the match). Dropping it made
+			// _Unwind_Find_FDE read as "not found" even on a hit.
+			return int(rc)
 		}
 	}
 	return 0

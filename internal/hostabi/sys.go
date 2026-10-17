@@ -354,6 +354,14 @@ func isMonotonic(clockid int) bool {
 
 //go:noinline
 func goClockGettime(clockid, tp uintptr) int {
+	if debugClock {
+		clockGetCount++
+		if clockGetCount == 1000000 || clockGetCount == 3000000 {
+			rp, rbp := guestCapture()
+			fmt.Fprintf(os.Stderr, "rbxrt: clock_gettime caller=%#x (+%#x) n=%d rbp=%#x\n", rp, rp-guestBias, clockGetCount, rbp)
+			walkGuestFrames(40)
+		}
+	}
 	if tp != 0 {
 		var sec, nsec int64
 		if isMonotonic(int(clockid)) {
@@ -705,6 +713,16 @@ var debugTLS = os.Getenv("RBXRT_DEBUG_TLS") != ""
 // bringing up guest execution. Off unless RBXRT_DEBUG_MEM is set.
 var debugMem = os.Getenv("RBXRT_DEBUG_MEM") != ""
 
+// debugStack traces every host->guest entry: which stack it runs on and whether
+// the guest stack was already marked in use (which forces the no-switch path).
+// Off unless RBXRT_DEBUG_STACK is set.
+var debugStack = os.Getenv("RBXRT_DEBUG_STACK") != ""
+
+// debugClock rate-limits a trace of clock_gettime, used to locate a guest
+// busy-wait. Off unless RBXRT_DEBUG_CLOCK is set.
+var debugClock = os.Getenv("RBXRT_DEBUG_CLOCK") != ""
+var clockGetCount uint64
+
 // debugJNI enables a per-call trace of the JNI entry point (capped, so a tight
 // loop cannot flood the log). Off unless RBXRT_DEBUG_JNI is set.
 var debugJNI = os.Getenv("RBXRT_DEBUG_JNI") != ""
@@ -951,6 +969,10 @@ func releaseThreadLocal(g uintptr) {
 			break
 		}
 	}
+
+	// Drop the thread's JNIEnv slot so the reused g struct cannot inherit a
+	// stale env (and the per-thread table the engine cached in *env).
+	releaseEnvSlot(g)
 
 	gsMu.Lock()
 	gs := gsMap[g]

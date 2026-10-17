@@ -228,6 +228,13 @@ func callGuestDirect8(fn, a, b, c, d, e, f, a7, a8 uintptr) uintptr
 func invokeGuest(fn, a, b, c uintptr) uintptr {
 	g := getg()
 	gs := getGuestStack(g)
+	if debugStack {
+		lo := *(*uintptr)(unsafe.Pointer(g))
+		hi := *(*uintptr)(unsafe.Pointer(g + 8))
+		sp := currentSP()
+		fmt.Fprintf(os.Stderr, "invokeGuest fn=%#x g=%#x depth=%d gs=[%#x,%#x) gs.sp=%#x gstack=[%#x,%#x) sp=%#x onGuest=%v\n",
+			fn, g, gs.depth, gs.base, gs.top, gs.sp, lo, hi, sp, sp >= gs.base && sp < gs.top)
+	}
 	if gs.depth > 0 {
 		return callGuestDirect(fn, a, b, c)
 	}

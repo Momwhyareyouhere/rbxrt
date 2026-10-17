@@ -38,6 +38,10 @@ const (
 
 var debugLooper = os.Getenv("RBXRT_DEBUG_LOOPER") != ""
 
+// looperPollCount rate-limits the ALooper_pollOnce trace so a busy main loop
+// does not flood the log.
+var looperPollCount uint64
+
 // looperFd is one fd registered with a looper. When callback is non-zero the
 // looper invokes it on readiness (guest code, called back through CallGuestInt3);
 // otherwise the fd is reported to the caller of ALooper_pollOnce via its out
@@ -241,6 +245,12 @@ func goALooperPollOnce(h, timeoutMillis, outFd, outEvents, outData uintptr) int 
 		return aLooperPollError
 	}
 	timeout := int(int64(timeoutMillis))
+	if debugLooper {
+		looperPollCount++
+		if looperPollCount%50000 == 1 {
+			fmt.Fprintf(os.Stderr, "rbxrt: ALooper_pollOnce h=%#x timeout=%d n=%d\n", h, timeout, looperPollCount)
+		}
+	}
 	events := make([]syscall.EpollEvent, 16)
 	for {
 		n, err := syscall.EpollWait(lp.epfd, events, timeout)

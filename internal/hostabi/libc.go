@@ -310,7 +310,8 @@ func goStrstr(hay, needle uintptr) uintptr {
 	// telemetry, which the runtime does not implement yet, so the message is
 	// otherwise invisible; surface it here instead.
 	if cstrIs(needle, "out of memory") {
-		fmt.Fprintf(os.Stderr, "rbxrt: fatal message: %q\n", cstrN(hay, 512))
+		rp, _ := guestCapture()
+		fmt.Fprintf(os.Stderr, "rbxrt: fatal message: %q caller=%#x\n", cstrN(hay, 512), rp)
 	}
 	nl := goStrlen(needle)
 	if nl == 0 {

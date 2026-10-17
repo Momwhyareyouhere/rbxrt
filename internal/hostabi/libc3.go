@@ -172,9 +172,20 @@ func goExecv(path, argv uintptr) int {
 
 // --- scheduling -------------------------------------------------------------
 
+// goSchedGetcpu is bionic's `int sched_getcpu(void)`: a guest call passes no
+// arguments, so rdi/rsi/rdx are whatever the caller happened to be holding. The
+// engine's own allocator (0x2de6ef0) calls this with its allocator object in
+// rdi and the request size in rsi; forwarding those as getcpu()'s output
+// pointers made the kernel store the running CPU into the caller's object and
+// reported a bogus CPU. The output buffer must therefore be ours.
+//
 //go:noinline
-func goSchedGetcpu(cpu, node, tcache uintptr) int {
-	return int(int64(rawSys(nSysGetcpu, cpu, node, tcache)))
+func goSchedGetcpu(_, _, _ uintptr) int {
+	var cpu int32
+	if r := rawSys(nSysGetcpu, uintptr(unsafe.Pointer(&cpu)), 0, 0); r != 0 {
+		return int(int64(r))
+	}
+	return int(cpu)
 }
 
 //go:noinline
