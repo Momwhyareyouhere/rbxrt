@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -187,11 +189,181 @@ func goAndroidLogWrite(prio, tag, msg uintptr) int {
 }
 
 //go:noinline
-func goAndroidLogPrint(prio, tag, fmtp uintptr, extra uintptr) int {
-	// Formatting varargs is not implemented yet; the message is reported
-	// verbatim so the failure is visible rather than silent.
-	writeLog(cstr(tag), cstr(fmtp))
+func goAndroidLogPrint(prio, tag, fmtp, a1, a2, a3 uintptr) int {
+	writeLog(cstr(tag), formatLogV(cstr(fmtp), [3]uintptr{a1, a2, a3}))
 	return 0
+}
+
+// maxLogString bounds a %s conversion; a log line is diagnostic, not data.
+const maxLogString = 4096
+
+// formatLogV renders the printf-style message of __android_log_print. The
+// engine passes its varargs in rcx/r8/r9 and then on the guest stack, as the
+// SysV ABI says; the thunk records the guest SP at entry, so stack varargs are
+// reachable at sp+8, sp+16, and so on. Floating-point varargs arrive in xmm
+// registers, which the call thunk does not capture, so those are rendered as a
+// visible placeholder instead of a silently wrong number.
+func formatLogV(format string, reg [3]uintptr) string {
+	var b strings.Builder
+	stack := guestCapturedRSP()
+	next := 0
+	// arg returns the next integer/pointer vararg: register arguments first,
+	// then the guest stack.
+	arg := func() uintptr {
+		i := next
+		next++
+		if i < len(reg) {
+			return reg[i]
+		}
+		if stack == 0 {
+			return 0
+		}
+		return *(*uintptr)(unsafe.Pointer(stack + 8 + uintptr(i-len(reg))*8))
+	}
+	for i := 0; i < len(format); {
+		if format[i] != '%' {
+			b.WriteByte(format[i])
+			i++
+			continue
+		}
+		specStart := i
+		j := i + 1
+		if j < len(format) && format[j] == '%' {
+			b.WriteByte('%')
+			i = j + 1
+			continue
+		}
+		fs := j
+		for j < len(format) && strings.IndexByte("-+ #0", format[j]) >= 0 {
+			j++
+		}
+		flags := format[fs:j]
+		width := -1
+		if j < len(format) && format[j] == '*' {
+			width = int(int32(uint32(arg())))
+			j++
+		} else {
+			ws := j
+			for j < len(format) && format[j] >= '0' && format[j] <= '9' {
+				j++
+			}
+			if j > ws {
+				if n, err := strconv.Atoi(format[ws:j]); err == nil {
+					width = n
+				}
+			}
+		}
+		prec := -1
+		if j < len(format) && format[j] == '.' {
+			j++
+			prec = 0
+			if j < len(format) && format[j] == '*' {
+				prec = int(int32(uint32(arg())))
+				j++
+			} else {
+				ps := j
+				for j < len(format) && format[j] >= '0' && format[j] <= '9' {
+					j++
+				}
+				if j > ps {
+					if n, err := strconv.Atoi(format[ps:j]); err == nil {
+						prec = n
+					}
+				}
+			}
+		}
+		ls := j
+		for j < len(format) && strings.IndexByte("hlLjztq", format[j]) >= 0 {
+			j++
+		}
+		length := format[ls:j]
+		if j >= len(format) {
+			b.WriteString(format[specStart:]) // truncated conversion
+			break
+		}
+		conv := format[j]
+		i = j + 1
+		wide := strings.ContainsAny(length, "lLzjtq")
+		switch conv {
+		case 'd', 'i':
+			v := arg()
+			text := strconv.FormatInt(int64(int32(uint32(v))), 10)
+			if wide {
+				text = strconv.FormatInt(int64(v), 10)
+			}
+			b.WriteString(padNumber(text, width, prec, flags))
+		case 'u', 'o', 'x', 'X':
+			v := arg()
+			base := 10
+			switch conv {
+			case 'o':
+				base = 8
+			case 'x', 'X':
+				base = 16
+			}
+			if !wide {
+				v = uintptr(uint32(v))
+			}
+			text := strconv.FormatUint(uint64(v), base)
+			if conv == 'X' {
+				text = strings.ToUpper(text)
+			}
+			if prec >= 0 && len(text) < prec {
+				text = strings.Repeat("0", prec-len(text)) + text
+			}
+			b.WriteString(padNumber(text, width, -1, flags))
+		case 'c':
+			b.WriteByte(byte(arg()))
+		case 's':
+			s := cstrN(arg(), maxLogString)
+			if prec >= 0 && len(s) > prec {
+				s = s[:prec]
+			}
+			b.WriteString(padString(s, width, flags))
+		case 'p':
+			b.WriteString("0x" + strconv.FormatUint(uint64(arg()), 16))
+		case 'f', 'F', 'e', 'E', 'g', 'G', 'a', 'A':
+			// xmm varargs are not captured by the call thunk.
+			b.WriteString("<float?>")
+		default:
+			b.WriteString(format[specStart : j+1]) // reproduce unknown specs
+		}
+	}
+	return b.String()
+}
+
+// padNumber applies the '-'/width/'0' flags to an already-formatted number.
+func padNumber(text string, width, prec int, flags string) string {
+	if prec >= 0 && len(text) < prec && !strings.Contains(flags, "-") {
+		text = strings.Repeat("0", prec-len(text)) + text
+	}
+	if width <= len(text) {
+		return text
+	}
+	pad := width - len(text)
+	if strings.Contains(flags, "-") {
+		return text + strings.Repeat(" ", pad)
+	}
+	if strings.Contains(flags, "0") && prec < 0 {
+		sign := ""
+		if len(text) > 0 && (text[0] == '-' || text[0] == '+') {
+			sign, text = text[:1], text[1:]
+		}
+		return sign + strings.Repeat("0", pad) + text
+	}
+	return strings.Repeat(" ", pad) + text
+}
+
+// padString applies the '-'/width flags to a string conversion.
+func padString(text string, width int, flags string) string {
+	if width <= len(text) {
+		return text
+	}
+	pad := strings.Repeat(" ", width-len(text))
+	if strings.Contains(flags, "-") {
+		return text + pad
+	}
+	return pad + text
 }
 
 //go:noinline
@@ -446,8 +618,10 @@ func goClose(fd uintptr) int {
 func goRead(fd, buf, n uintptr) int {
 	r, err := syscall.Read(int(fd), unsafe.Slice((*byte)(unsafe.Pointer(buf)), int(n)))
 	if err != nil {
+		tracePipeIO("read", fd, buf, n, -1)
 		return -1
 	}
+	tracePipeIO("read", fd, buf, n, r)
 	return r
 }
 
@@ -455,9 +629,30 @@ func goRead(fd, buf, n uintptr) int {
 func goWrite(fd, buf, n uintptr) int {
 	r, err := syscall.Write(int(fd), unsafe.Slice((*byte)(unsafe.Pointer(buf)), int(n)))
 	if err != nil {
+		tracePipeIO("write", fd, buf, n, -1)
 		return -1
 	}
+	tracePipeIO("write", fd, buf, n, r)
 	return r
+}
+
+// debugPipe traces short reads and writes (RBXRT_DEBUG_PIPE). The engine drives
+// its lifecycle through a byte-at-a-time command pipe, so the sequence of bytes
+// and the guest call sites that produce them is the clearest view of how far a
+// launch got and who is still waiting.
+var debugPipe = os.Getenv("RBXRT_DEBUG_PIPE") != ""
+
+func tracePipeIO(op string, fd, buf, n uintptr, r int) {
+	if !debugPipe || n == 0 || n > 64 || (fd <= 2 && op == "write") {
+		return
+	}
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = *(*byte)(unsafe.Pointer(buf + uintptr(i)))
+	}
+	retPC, _ := guestCapture()
+	fmt.Fprintf(os.Stderr, "rbxrt: pipe %s fd=%d n=%d [% x] by image+%#x -> %d\n",
+		op, fd, n, b, GuestImageOffset(retPC), r)
 }
 
 //go:noinline

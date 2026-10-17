@@ -131,6 +131,54 @@ func guestCapture() (retPC, rbp uintptr) {
 		*(*uintptr)(unsafe.Pointer(gs.base - guestCaptureRBP))
 }
 
+// GuestThreadState describes one guest thread (one goroutine with a guest
+// stack) at the moment it was sampled. The PC is the guest address of the most
+// recent host call that thread made: for a thread blocked inside a host
+// function it names exactly where the guest is, and for a thread running pure
+// guest code it is the last call site, i.e. a sample of its recent activity.
+type GuestThreadState struct { //nolint:revive // exported for cmd/rbxrt
+	Base     uintptr
+	RetPC    uintptr
+	RBP      uintptr
+	Depth    int
+	StackTop uintptr
+}
+
+// GuestImageOffset maps a guest address in the primary image to an image
+// offset, so a sampled PC can be read against the loaded file.
+func GuestImageOffset(pc uintptr) uintptr {
+	if guestBias != 0 && pc >= guestBias {
+		return pc - guestBias
+	}
+	return pc
+}
+
+// GuestThreadsSnapshot samples every goroutine that owns a guest stack. It is
+// read-only and takes the same lock as the capture accessors, so it is safe to
+// call from another goroutine while guest threads run.
+func GuestThreadsSnapshot() []GuestThreadState {
+	gsMu.Lock()
+	stacks := make([]*guestStack, 0, len(gsMap))
+	for _, gs := range gsMap {
+		stacks = append(stacks, gs)
+	}
+	gsMu.Unlock()
+	out := make([]GuestThreadState, 0, len(stacks))
+	for _, gs := range stacks {
+		if gs.base == 0 {
+			continue
+		}
+		out = append(out, GuestThreadState{
+			Base:     gs.base,
+			RetPC:    *(*uintptr)(unsafe.Pointer(gs.base - guestCaptureRetPC)),
+			RBP:      *(*uintptr)(unsafe.Pointer(gs.base - guestCaptureRBP)),
+			Depth:    gs.depth,
+			StackTop: gs.top,
+		})
+	}
+	return out
+}
+
 // guestCapturedRSP returns the guest stack pointer at the most recent host
 // thunk entry, or 0 if that thunk was never entered from guest code. Callers
 // that need a C stack argument (bionic's syscall() is variadic, so futex's

@@ -4,7 +4,9 @@ import (
 	"debug/elf"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"rbxrt/internal/engine"
 	"rbxrt/internal/hostabi"
@@ -263,9 +265,10 @@ func probeInitializeNativeCode(im *loader.Image) (uintptr, error) {
 // call the same methods in the same order, so the engine starts as far as the
 // host platform allows before it reaches an unimplemented import.
 //
-// This is a launch *attempt*, not a launch: there is no window, EGL context or
-// ANativeWindow yet, so the sequence is expected to stop, loudly, at the first
-// platform function the surface path needs (ANativeWindow_fromSurface).
+// The window already exists by this point (InitGraphics created it), so the
+// sequence's job is to tell the engine about that window. Afterwards we hold
+// the process open: the engine starts acting on the surface asynchronously, and
+// exiting the instant step 7 returns would end it before it ever reached EGL.
 func launchGameActivity(handle uintptr) error {
 	const cls = "com/google/androidgamesdk/GameActivity"
 
@@ -274,6 +277,16 @@ func launchGameActivity(handle uintptr) error {
 		thiz    = uintptr(0x7b010000) // GameActivity instance
 		surface = uintptr(0x7b020000) // android.view.Surface
 	)
+	// The synthetic Surface has to be reachable as a window: the engine may
+	// hand it to eglCreateWindowSurface without ANativeWindow_fromSurface.
+	hostabi.BindGuestSurface(surface)
+
+	// The dimensions the framework would report are the real window's, so the
+	// engine's render target matches what eglSwapBuffers ends up in.
+	w, h := hostabi.WindowSize()
+	if w == 0 || h == 0 {
+		w, h = 1920, 1080
+	}
 
 	call := func(i int, name string, a []uintptr) (uintptr, bool) {
 		fn, ok := hostabi.NativeMethod(cls, name)
@@ -305,7 +318,8 @@ func launchGameActivity(handle uintptr) error {
 		{"onWindowFocusChangedNative", []uintptr{handle, 1}}, // hasFocus = true
 		{"onWindowInsetsChangedNative", []uintptr{handle}},
 		{"onSurfaceCreatedNative", []uintptr{handle, surface}},
-		{"onSurfaceChangedNative", []uintptr{handle, surface, windowFormatRGBA8888, 1920, 1080}},
+		{"onSurfaceChangedNative", []uintptr{handle, surface, windowFormatRGBA8888,
+			uintptr(w), uintptr(h)}},
 		{"onSurfaceRedrawNeededNative", []uintptr{handle, surface}},
 	}
 
@@ -315,7 +329,51 @@ func launchGameActivity(handle uintptr) error {
 		}
 	}
 	fmt.Printf("launch: lifecycle drove to onSurfaceRedrawNeeded\n")
+	holdForRendering()
 	return nil
+}
+
+// holdForRendering keeps the process open after the lifecycle: the engine
+// reacts to the surface asynchronously, so exiting the instant step 7 returns
+// would end it before it ever reached EGL. RBXRT_LAUNCH_HOLD_SECS bounds the
+// hold in seconds (default 15, 0 restores the old exit-immediately behaviour),
+// and the EGL counters report what, if anything, rendering got to.
+func holdForRendering() {
+	secs := 15
+	if s := os.Getenv("RBXRT_LAUNCH_HOLD_SECS"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n >= 0 {
+			secs = n
+		} else {
+			fmt.Printf("launch: bad RBXRT_LAUNCH_HOLD_SECS %q, using 15\n", s)
+		}
+	}
+	if secs == 0 {
+		return
+	}
+	fmt.Printf("launch: holding %ds for the engine to act on the surface\n", secs)
+	deadline := time.Now().Add(time.Duration(secs) * time.Second)
+	last := make([]int64, 4)
+	seen := map[uintptr]uintptr{}
+	for time.Now().Before(deadline) {
+		time.Sleep(500 * time.Millisecond)
+		inits, ctxs, cur, swaps := hostabi.EGLCounts()
+		if inits != last[0] || ctxs != last[1] || cur != last[2] || swaps != last[3] {
+			fmt.Printf("launch: EGL counts: initialize=%d context=%d makeCurrent=%d swap=%d\n",
+				inits, ctxs, cur, swaps)
+			last[0], last[1], last[2], last[3] = inits, ctxs, cur, swaps
+		}
+		for _, ts := range hostabi.GuestThreadsSnapshot() {
+			if os.Getenv("RBXRT_DEBUG_THREADS") == "" || seen[ts.Base] == ts.RetPC {
+				continue
+			}
+			seen[ts.Base] = ts.RetPC
+			fmt.Printf("launch: thread %#x pc=image+%#x depth=%d\n",
+				ts.Base, hostabi.GuestImageOffset(ts.RetPC), ts.Depth)
+		}
+	}
+	inits, ctxs, cur, swaps := hostabi.EGLCounts()
+	fmt.Printf("launch: hold over; EGL counts: initialize=%d context=%d makeCurrent=%d swap=%d\n",
+		inits, ctxs, cur, swaps)
 }
 
 // windowFormatRGBA8888 is ANativeWindow_LegacyFormat::WINDOW_FORMAT_RGBA_8888,
