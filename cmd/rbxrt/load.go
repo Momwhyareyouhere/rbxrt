@@ -4,9 +4,11 @@ import (
 	"debug/elf"
 	"fmt"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
+	"unsafe"
 
 	"rbxrt/internal/engine"
 	"rbxrt/internal/hostabi"
@@ -140,6 +142,18 @@ func cmdLoad(args []string) error {
 		fmt.Printf("constructors: ran %d functions\n", len(im.InitFuncs))
 	}
 
+	// The Java side the engine expects is answered before any guest code runs:
+	// JNI_OnLoad and the constructors already read device parameters, the
+	// locale and the clock through JNI (see javadata.go). Gated with the rest
+	// of the boot so a run that wants only natural behaviour can turn it off.
+	if os.Getenv("RBXRT_BOOT") != "" {
+		if err := ensureDataDir(); err != nil {
+			return err
+		}
+		setJavaStringValues(im)
+		seedJavaValues()
+	}
+
 	if jni {
 		if err := callJNIOnLoad(im); err != nil {
 			return err
@@ -151,7 +165,7 @@ func cmdLoad(args []string) error {
 			return err
 		}
 		if launch {
-			return launchGameActivity(h)
+			return launchGameActivity(im, h)
 		}
 	}
 	return nil
@@ -222,6 +236,22 @@ func callJNIOnLoad(im *loader.Image) error {
 // only initializes the library.
 const entryPoint = "Java_com_google_androidgamesdk_GameActivity_initializeNativeCode"
 
+// The fabricated Java references the launch plays. The engine treats them as
+// opaque jobjects - it compares them, hands them back to the JNI table, and
+// reads the Strings behind them - so each is a distinct non-null sentinel. The
+// String sentinels carry real content (see setJavaStringValues): an empty asset
+// path would be a wrong answer rather than a missing one.
+const (
+	javaActivity    = uintptr(0x7b010000) // GameActivity instance
+	javaAssetPath   = uintptr(0x7b010001) // String: path to the APK/assets
+	javaNativeLib   = uintptr(0x7b010002) // String: native library directory
+	javaInternalDir = uintptr(0x7b010003) // String: internal data directory
+	javaAssetMgr    = uintptr(0x7b010004) // android.content.res.AssetManager
+	javaInsets      = uintptr(0x7b010005) // byte[] (window insets)
+	javaConfig      = uintptr(0x7b010006) // android.content.res.Configuration
+	javaSurface     = uintptr(0x7b020000) // android.view.Surface
+)
+
 // probeInitializeNativeCode drives the app entry point with a fabricated JNI
 // environment so we can measure how far it gets and which platform import stops
 // it first. Nothing here fakes success: every argument is a distinct non-null
@@ -240,21 +270,11 @@ func probeInitializeNativeCode(im *loader.Image) (uintptr, error) {
 	// platform import that would actually dereference them, at which point we
 	// want the trap to fire rather than a silent zero.
 	env := hostabi.JNIEnvAddr()
-	const (
-		thiz         = uintptr(0x7b010000) // GameActivity instance
-		assetPath    = uintptr(0x7b010001) // String: path to the APK/assets
-		nativeLibDir = uintptr(0x7b010002) // String: native library directory
-		internalDir  = uintptr(0x7b010003) // String: internal data directory
-		assetManager = uintptr(0x7b010004) // android.content.res.AssetManager
-		insets       = uintptr(0x7b010005) // byte[]
-		config       = uintptr(0x7b010006) // android.content.res.Configuration
-	)
-
 	fmt.Printf("probing %s (fn=%#x env=%#x)\n", entryPoint, fn, env)
 	fmt.Printf("  args: thiz=%#x assetPath=%#x nativeLibDir=%#x internalDir=%#x assets=%#x blob=%#x config=%#x\n",
-		thiz, assetPath, nativeLibDir, internalDir, assetManager, insets, config)
-	rv := hostabi.CallGuestInt8(fn, env, thiz, assetPath, nativeLibDir, internalDir,
-		assetManager, insets, config)
+		javaActivity, javaAssetPath, javaNativeLib, javaInternalDir, javaAssetMgr, javaInsets, javaConfig)
+	rv := hostabi.CallGuestInt8(fn, env, javaActivity, javaAssetPath, javaNativeLib, javaInternalDir,
+		javaAssetMgr, javaInsets, javaConfig)
 	fmt.Printf("initializeNativeCode returned %#x (%d)\n", rv, rv)
 	return uintptr(rv), nil
 }
@@ -269,17 +289,13 @@ func probeInitializeNativeCode(im *loader.Image) (uintptr, error) {
 // sequence's job is to tell the engine about that window. Afterwards we hold
 // the process open: the engine starts acting on the surface asynchronously, and
 // exiting the instant step 7 returns would end it before it ever reached EGL.
-func launchGameActivity(handle uintptr) error {
+func launchGameActivity(im *loader.Image, handle uintptr) error {
 	const cls = "com/google/androidgamesdk/GameActivity"
 
 	env := hostabi.JNIEnvAddr()
-	const (
-		thiz    = uintptr(0x7b010000) // GameActivity instance
-		surface = uintptr(0x7b020000) // android.view.Surface
-	)
 	// The synthetic Surface has to be reachable as a window: the engine may
 	// hand it to eglCreateWindowSurface without ANativeWindow_fromSurface.
-	hostabi.BindGuestSurface(surface)
+	hostabi.BindGuestSurface(javaSurface)
 
 	// The dimensions the framework would report are the real window's, so the
 	// engine's render target matches what eglSwapBuffers ends up in.
@@ -296,7 +312,7 @@ func launchGameActivity(handle uintptr) error {
 		}
 		// JNI native ABI: env, thiz, then the Java arguments.
 		var args [8]uintptr
-		args[0], args[1] = env, thiz
+		args[0], args[1] = env, javaActivity
 		copy(args[2:], a)
 		fmt.Printf("launch: step %d %s(handle=%#x%s) fn=%#x\n", i, name, handle, argNote(a), fn)
 		rv := hostabi.CallGuestInt8(fn, args[0], args[1], args[2], args[3],
@@ -317,10 +333,10 @@ func launchGameActivity(handle uintptr) error {
 		{"onResumeNative", []uintptr{handle}},
 		{"onWindowFocusChangedNative", []uintptr{handle, 1}}, // hasFocus = true
 		{"onWindowInsetsChangedNative", []uintptr{handle}},
-		{"onSurfaceCreatedNative", []uintptr{handle, surface}},
-		{"onSurfaceChangedNative", []uintptr{handle, surface, windowFormatRGBA8888,
+		{"onSurfaceCreatedNative", []uintptr{handle, javaSurface}},
+		{"onSurfaceChangedNative", []uintptr{handle, javaSurface, windowFormatRGBA8888,
 			uintptr(w), uintptr(h)}},
-		{"onSurfaceRedrawNeededNative", []uintptr{handle, surface}},
+		{"onSurfaceRedrawNeededNative", []uintptr{handle, javaSurface}},
 	}
 
 	for i, s := range steps {
@@ -329,16 +345,139 @@ func launchGameActivity(handle uintptr) error {
 		}
 	}
 	fmt.Printf("launch: lifecycle drove to onSurfaceRedrawNeeded\n")
-	holdForRendering()
+	// Best-effort: pin the engine's main-thread id to this goroutine's id so
+	// the component-init dispatch doesn't hand work to a different thread.
+	if os.Getenv("RBXRT_BOOT") != "" {
+		hostabi.SetMainThreadID(hostabi.GetG())
+		// Try to write the cached global if we can find the image mapping
+		if b, err := os.ReadFile("/proc/self/maps"); err == nil {
+			for _, line := range strings.Split(string(b), "\n") {
+				if strings.Contains(line, "libroblox") {
+					idx := strings.Index(line, "-")
+					if idx >= 0 {
+						var start uint64
+						fmt.Sscanf(line[:idx], "%x", &start)
+						if start != 0 {
+							base := uintptr(start)
+							*(*uintptr)(unsafe.Pointer(base + 0x76414b8)) = hostabi.GetG()
+						}
+						break
+					}
+				}
+			}
+		}
+	}
+	holdForRendering(im, javaBootKick(im))
 	return nil
+}
+
+// bootWatchdog reports where the Java handshake is stuck. It returns a stop
+// function; the caller defers it so a normal return disarms the check. On
+// expiry it dumps every guest thread's last host call (the exact instruction
+// the thread is in, or called from) and exits, because a startup call that
+// never returns cannot make progress by waiting longer.
+func bootWatchdog(im *loader.Image) func() {
+	secs := 30
+	if s := os.Getenv("RBXRT_BOOT_WATCHDOG"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			secs = n
+		} else {
+			fmt.Printf("boot: bad RBXRT_BOOT_WATCHDOG %q, using 30\n", s)
+		}
+	}
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-done:
+			return
+		case <-time.After(time.Duration(secs) * time.Second):
+		}
+		fmt.Fprintf(os.Stderr, "boot: handshake still running after %ds; guest threads:\n", secs)
+		for _, ts := range hostabi.GuestThreadsSnapshot() {
+			what := im.CallSiteName(ts.RetPC)
+			if what == "" {
+				what = fmt.Sprintf("image+%#x", hostabi.GuestImageOffset(ts.RetPC))
+			}
+			fmt.Fprintf(os.Stderr, "boot: guest thread %#x last-host=%s depth=%d rbp=%#x\n",
+				ts.Base, what, ts.Depth, ts.RBP)
+		}
+		os.Exit(3)
+	}()
+	return func() { close(done) }
+}
+
+// javaBootKick calls into the Roblox-specific JNI entry points the app's Java
+// side is responsible for, which nothing in this runtime has ever done.
+//
+// The picture from the traces: JNI_OnLoad only initializes the library, and the
+// Java app afterwards drives the engine through NativeGLInterface - the exported
+// symbols the APK's classes call are right there in the image. With none of
+// them called, the engine consumes the GameActivity lifecycle commands and then
+// idles in its looper, never reaching EGL - exactly what we measure.
+//
+// The argument lists below are recovered from the APK's dex, not guessed: the
+// startup sequence the Java side drives is nativeGameGlobalInit() (no
+// arguments - the context hypothesis was wrong), then
+// nativeAppBridgeV2InitWithParams(InitParams) and
+// nativeAppBridgeV2StartAppWithParams(StartAppParams) with AutoValue objects
+// built by the app. The two param objects are fakes: the engine reads their
+// fields through JNI, which answers from the value tables in jobject.go and
+// reports every request it has no answer for. It is gated by RBXRT_BOOT so a
+// run that wants only the natural behaviour can turn it off.
+//
+// The returned function is the frame pump, nil when it is unavailable.
+func javaBootKick(im *loader.Image) (pump func() int) {
+	if os.Getenv("RBXRT_BOOT") == "" {
+		return nil
+	}
+	env := hostabi.JNIEnvAddr()
+	// The natives are static methods of the Java interface the APK declares; JNI
+	// passes their class as the second argument.
+	cls := hostabi.FindClassHandle("com/roblox/engine/jni/NativeGLInterface")
+	const prefix = "Java_com_roblox_engine_jni_NativeGLInterface_"
+
+	// Everything the engine reads back out of Java during this startup was
+	// answered before JNI_OnLoad (see the seeding in cmdLoad and javadata.go).
+
+	call := func(name string, arg uintptr) {
+		fn, ok := im.Exports[prefix+name]
+		if !ok {
+			fmt.Printf("boot: %s is not exported\n", name)
+			return
+		}
+		fmt.Printf("boot: calling %s(arg=%#x)\n", name, arg)
+		rv := hostabi.CallGuestInt3(fn, env, cls, arg)
+		fmt.Printf("boot: %s returned %#x\n", name, rv)
+	}
+
+	// A startup native that never returns looks exactly like a slow one unless
+	// something says where it is. The hold's watchdog only starts after this
+	// handshake, so give the handshake its own: report every guest thread at its
+	// last host call and stop, instead of hanging until the outer timeout.
+	stopWatchdog := bootWatchdog(im)
+	defer stopWatchdog()
+
+	call("nativeGameGlobalInit", 0)
+	call("nativeAppBridgeV2InitWithParams", hostabi.NewFakeObject(classInitArgs))
+	call("nativeAppBridgeV2StartAppWithParams", hostabi.NewFakeObject(classStartApp))
+
+	pumpName := prefix + "nativeCallMessagesFromMainThread"
+	fn, ok := im.Exports[pumpName]
+	if !ok {
+		fmt.Printf("boot: %s is not exported\n", pumpName)
+		return nil
+	}
+	fmt.Printf("boot: will pump %s once per frame\n", pumpName)
+	return func() int { return hostabi.CallGuestInt3(fn, env, cls, 0) }
 }
 
 // holdForRendering keeps the process open after the lifecycle: the engine
 // reacts to the surface asynchronously, so exiting the instant step 7 returns
 // would end it before it ever reached EGL. RBXRT_LAUNCH_HOLD_SECS bounds the
 // hold in seconds (default 15, 0 restores the old exit-immediately behaviour),
+// the frame pump (when the Java handshake is enabled) is called every ~16ms,
 // and the EGL counters report what, if anything, rendering got to.
-func holdForRendering() {
+func holdForRendering(im *loader.Image, pump func() int) {
 	secs := 15
 	if s := os.Getenv("RBXRT_LAUNCH_HOLD_SECS"); s != "" {
 		if n, err := strconv.Atoi(s); err == nil && n >= 0 {
@@ -352,24 +491,87 @@ func holdForRendering() {
 	}
 	fmt.Printf("launch: holding %ds for the engine to act on the surface\n", secs)
 	deadline := time.Now().Add(time.Duration(secs) * time.Second)
-	last := make([]int64, 4)
-	seen := map[uintptr]uintptr{}
-	for time.Now().Before(deadline) {
-		time.Sleep(500 * time.Millisecond)
-		inits, ctxs, cur, swaps := hostabi.EGLCounts()
-		if inits != last[0] || ctxs != last[1] || cur != last[2] || swaps != last[3] {
-			fmt.Printf("launch: EGL counts: initialize=%d context=%d makeCurrent=%d swap=%d\n",
-				inits, ctxs, cur, swaps)
-			last[0], last[1], last[2], last[3] = inits, ctxs, cur, swaps
-		}
-		for _, ts := range hostabi.GuestThreadsSnapshot() {
-			if os.Getenv("RBXRT_DEBUG_THREADS") == "" || seen[ts.Base] == ts.RetPC {
-				continue
+
+	// The sampler runs on a goroutine of its own: a pump that blocks inside
+	// the engine must not also blind the diagnostics, which exist precisely
+	// to say what a blocked thread is waiting for.
+	done := make(chan struct{})
+	go func() {
+		last := make([]int64, 4)
+		seen := map[uintptr]uintptr{}
+		tick := time.NewTicker(512 * time.Millisecond)
+		defer tick.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-tick.C:
 			}
-			seen[ts.Base] = ts.RetPC
-			fmt.Printf("launch: thread %#x pc=image+%#x depth=%d\n",
-				ts.Base, hostabi.GuestImageOffset(ts.RetPC), ts.Depth)
+			inits, ctxs, cur, swaps := hostabi.EGLCounts()
+			if inits != last[0] || ctxs != last[1] || cur != last[2] || swaps != last[3] {
+				fmt.Printf("launch: EGL counts: initialize=%d context=%d makeCurrent=%d swap=%d\n",
+					inits, ctxs, cur, swaps)
+				last[0], last[1], last[2], last[3] = inits, ctxs, cur, swaps
+			}
+			for _, ts := range hostabi.GuestThreadsSnapshot() {
+				if os.Getenv("RBXRT_DEBUG_THREADS") == "" || seen[ts.Base] == ts.RetPC {
+					continue
+				}
+				seen[ts.Base] = ts.RetPC
+				// depth 0 means the thread is running engine code right now and
+				// the name is where it last called into the host.
+				what := im.CallSiteName(ts.RetPC)
+				if what == "" {
+					what = fmt.Sprintf("image+%#x", hostabi.GuestImageOffset(ts.RetPC))
+				}
+				fmt.Printf("launch: thread %#x last-host=%s depth=%d\n", ts.Base, what, ts.Depth)
+			}
 		}
+	}()
+
+	pumps, blocked := 0, 0
+	overdue := make(chan struct{})
+	go func() {
+		time.Sleep(time.Duration(secs+3) * time.Second)
+		select {
+		case <-overdue:
+			return
+		default:
+		}
+		// A pump call that never returns would look like a silent hang, with
+		// the sampler still ticking: say where every goroutine and guest
+		// thread is, then stop rather than burn the clock.
+		buf := make([]byte, 1<<16)
+		n := runtime.Stack(buf, true)
+		fmt.Fprintf(os.Stderr, "launch: hold deadline passed with the loop still running; goroutines:\n%s", buf[:n])
+		for _, ts := range hostabi.GuestThreadsSnapshot() {
+			what := im.CallSiteName(ts.RetPC)
+			if what == "" {
+				what = fmt.Sprintf("image+%#x", hostabi.GuestImageOffset(ts.RetPC))
+			}
+			fmt.Fprintf(os.Stderr, "launch: guest thread %#x last-host=%s depth=%d\n",
+				ts.Base, what, ts.Depth)
+		}
+		os.Exit(3)
+	}()
+	for time.Now().Before(deadline) {
+		time.Sleep(16 * time.Millisecond) // ~60 Hz, a frame's worth of pumping
+		if pump != nil {
+			start := time.Now()
+			if pump() != 0 {
+				pumps++
+			}
+			if d := time.Since(start); d > 500*time.Millisecond {
+				blocked++
+				fmt.Printf("launch: pump call did not return for %v (engine blocked?)\n", d.Round(100*time.Millisecond))
+			}
+		}
+	}
+	close(done)
+	close(overdue)
+	if pump != nil {
+		fmt.Printf("launch: pumped nativeCallMessagesFromMainThread %d times (%d blocked calls)\n",
+			pumps, blocked)
 	}
 	inits, ctxs, cur, swaps := hostabi.EGLCounts()
 	fmt.Printf("launch: hold over; EGL counts: initialize=%d context=%d makeCurrent=%d swap=%d\n",

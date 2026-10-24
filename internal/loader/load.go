@@ -67,8 +67,61 @@ type Image struct {
 	// a fault can be attributed to a specific initializer.
 	Trace bool
 
+	// gotNames maps each PLT GOT slot to the import it names; built on demand
+	// by CallSiteName.
+	gotOnce  sync.Once
+	gotNames map[uintptr]string
+
 	file *os.File
 	fd   int
+}
+
+// CallSiteName names the import a guest call site targets.
+//
+// A guest thread records the return address of the most recent host call it
+// made: the instruction just after a `call`. In this image such a call is a
+// `call rel32` into the PLT, and a PLT entry loads the GOT slot that the
+// dynamic relocations name - which is the import itself. Resolving that
+// two-step chain turns a sampled address into a readable "this thread is
+// asking the host for X" without adding anything to the call path.
+//
+// pc is an address in this process's address space (the image is mapped there);
+// "" comes back when pc is outside the image, is not a plain call, or resolves
+// to no imported symbol (for instance a bound direct call into the engine).
+func (im *Image) CallSiteName(pc uintptr) string {
+	if pc < im.Base+5 || pc >= im.End {
+		return ""
+	}
+	call := pc - 5
+	if *(*byte)(unsafe.Pointer(call)) != 0xE8 { // E8 rel32: call rel32
+		return ""
+	}
+	rel := *(*int32)(unsafe.Pointer(call + 1))
+	target := call + 5 + uintptr(rel)
+	if target < im.Base || target+6 >= im.End {
+		return ""
+	}
+	// FF 25 disp32: jmp *disp32(%rip) - the GOT-indirect PLT stub.
+	if *(*byte)(unsafe.Pointer(target)) != 0xFF ||
+		*(*byte)(unsafe.Pointer(target + 1)) != 0x25 {
+		return ""
+	}
+	disp := *(*int32)(unsafe.Pointer(target + 2))
+	got := target + 6 + uintptr(disp)
+	im.gotOnce.Do(func() {
+		im.gotNames = make(map[uintptr]string, len(im.Eng.Relocs.Other)/2)
+		for _, r := range im.Eng.Relocs.Other {
+			if r.Kind != engine.RelocJumpSlot {
+				continue
+			}
+			sym := im.symbolFor(r)
+			if sym == nil {
+				continue
+			}
+			im.gotNames[im.Bias+uintptr(r.Offset)] = sym.Name
+		}
+	})
+	return im.gotNames[got]
 }
 
 // Rebase converts a guest virtual address to the host address.

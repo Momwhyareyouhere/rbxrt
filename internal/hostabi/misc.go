@@ -17,13 +17,13 @@ import (
 
 // goCopyInto copies src's memory image into guest memory. The layout of Go's
 // syscall.Stat_t matches the x86-64 bionic struct stat for the fields bionic
-// uses, so a straight byte copy is correct.
-func goCopyInto(dst uintptr, src any) {
-	sz := unsafe.Sizeof(src)
-	sp := uintptr(unsafe.Pointer(&src))
-	for i := uintptr(0); i < sz; i++ {
-		*(*byte)(unsafe.Pointer(dst + i)) = *(*byte)(unsafe.Pointer(sp + i))
-	}
+// uses, so a straight byte copy is correct. The source is a pointer because an
+// interface value is a (type, data) pair: copying through &src would copy the
+// pair's header rather than the struct it holds, which silently filled the
+// guest's stat buffer with nonsense - the mode field then read as "unknown
+// file type", which is how this was found.
+func goCopyInto(dst uintptr, src unsafe.Pointer, size uintptr) {
+	copy(unsafe.Slice((*byte)(unsafe.Pointer(dst)), size), unsafe.Slice((*byte)(src), size))
 }
 
 //go:noinline
@@ -32,7 +32,7 @@ func goStat(path, buf uintptr) int {
 	if err := syscall.Stat(cstr(path), &st); err != nil {
 		return -1
 	}
-	goCopyInto(buf, st)
+	goCopyInto(buf, unsafe.Pointer(&st), unsafe.Sizeof(st))
 	return 0
 }
 
@@ -42,7 +42,7 @@ func goLstat(path, buf uintptr) int {
 	if err := syscall.Lstat(cstr(path), &st); err != nil {
 		return -1
 	}
-	goCopyInto(buf, st)
+	goCopyInto(buf, unsafe.Pointer(&st), unsafe.Sizeof(st))
 	return 0
 }
 
@@ -52,7 +52,7 @@ func goFstat(fd, buf uintptr) int {
 	if err := syscall.Fstat(int(fd), &st); err != nil {
 		return -1
 	}
-	goCopyInto(buf, st)
+	goCopyInto(buf, unsafe.Pointer(&st), unsafe.Sizeof(st))
 	return 0
 }
 

@@ -786,7 +786,26 @@ func goPthreadMutexattrDestroy(a uintptr) int { return 0 }
 func goPthreadMutexattrSettype(a, t uintptr) int { return 0 }
 
 //go:noinline
-func goPthreadSelf() uintptr { return getg() }
+func goPthreadSelf() uintptr {
+	if mainThreadOverride != 0 {
+		return mainThreadOverride
+	}
+	return getg()
+}
+
+// For forcing thread identity from outside the package.
+var mainThreadOverride uintptr
+
+// SetMainThreadID forces pthread_self() to return id for all threads.
+func SetMainThreadID(id uintptr) {
+	// use atomic if available via runtime; simple store is fine for now
+	// best effort
+	mainThreadOverride = id
+}
+
+// GetG returns the current g pointer.
+func GetG() uintptr { return getg() }
+
 
 //go:noinline
 func goPthreadEqual(a, b uintptr) int {

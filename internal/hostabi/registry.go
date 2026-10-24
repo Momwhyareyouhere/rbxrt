@@ -305,6 +305,7 @@ var hostFuncs = map[string]any{
 	"localtime": goLocaltime, "localtime_r": goLocaltimeR,
 	"mktime": goMktime, "difftime": goDifftime,
 	"tzset": goTzset, "clock": goClock,
+	"strftime": goStrftime, "strftime_l": goStrftimeL,
 }
 
 func init() {

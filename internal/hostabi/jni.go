@@ -47,6 +47,10 @@ const (
 	jniDeleteLocalRef          = 23
 	jniIsSameObject            = 24
 	jniNewLocalRef             = 25
+	jniAllocObject             = 27
+	jniNewObject               = 28
+	jniNewObjectV              = 29
+	jniNewObjectA              = 30
 	jniGetObjectClass          = 31
 	jniIsInstanceOf            = 32
 	jniGetMethodID             = 33
@@ -64,6 +68,8 @@ const (
 	jniMonitorEnter            = 217
 	jniMonitorExit             = 218
 	jniGetJavaVM               = 219
+	jniNewWeakGlobalRef        = 226
+	jniDeleteWeakGlobalRef     = 227
 	jniExceptionCheck          = 228
 	jniNewDirectByteBuffer     = 229
 	jniGetDirectBufferAddress  = 230
@@ -241,33 +247,52 @@ func jniFindClassHandle(name string) uintptr {
 	h := jniClassNext
 	jniClassNext += 16
 	jniClasses[name] = h
+	jniNoteClass(h, name)
 	fmt.Fprintf(os.Stderr, "rbxrt: JNI: FindClass %q -> %#x\n", name, h)
 	return h
 }
 
+// FindClassHandle returns the JNI class handle for name, allocating it if the
+// engine has not looked the class up itself. When the launch driver has to
+// stand in for Java and call a static native directly, it needs the same
+// jclass the engine would have passed.
+func FindClassHandle(name string) uintptr { return jniFindClassHandle(name) }
+
 func jniMethodHandle(cls uintptr, name, sig string) uintptr {
 	key := fmt.Sprintf("%x\x00%s\x00%s", cls, name, sig)
 	jniMu.Lock()
-	defer jniMu.Unlock()
 	if h, ok := jniMethodKeys[key]; ok {
+		jniMu.Unlock()
 		return h
 	}
 	h := jniMethodNext
 	jniMethodNext += 16
 	jniMethodKeys[key] = h
+	jniMu.Unlock()
+	m := jniMember{jniClassName(cls), name, sig}
+	jniObjMu.Lock()
+	jniMethodIds[h] = m
+	jniObjMu.Unlock()
+	jniTraceMember("GetMethodID", m)
 	return h
 }
 
 func jniFieldHandle(cls uintptr, name, sig string) uintptr {
 	key := fmt.Sprintf("%x\x00%s\x00%s", cls, name, sig)
 	jniMu.Lock()
-	defer jniMu.Unlock()
 	if h, ok := jniFieldKeys[key]; ok {
+		jniMu.Unlock()
 		return h
 	}
 	h := jniFieldNext
 	jniFieldNext += 16
 	jniFieldKeys[key] = h
+	jniMu.Unlock()
+	m := jniMember{jniClassName(cls), name, sig}
+	jniObjMu.Lock()
+	jniFieldIds[h] = m
+	jniObjMu.Unlock()
+	jniTraceMember("GetFieldID", m)
 	return h
 }
 
@@ -419,16 +444,25 @@ func jniVMFn(idx, vm, a1, a2 uintptr) uintptr {
 }
 
 func jniEnvFn(id, env, a1, a2, a3, a4, a5 uintptr) uintptr {
-	// Whole ranges of JNI calls with no meaningful host behaviour yet: the
-	// variety of Java-side method/field/array operations returns a zero result.
+	// Ranges with real behaviour in the object model (jobject.go): instance
+	// calls and field reads are answered from the value tables the driver
+	// fills, writes are stored so a later read sees them.
 	switch {
 	case id >= 34 && id <= 63: // Call<Type>Method[V/A]
-		return 0
+		return jniCallInstance(a1, a2)
 	case id >= 95 && id <= 112: // Get/Set<Type>Field
+		if id%2 == 1 { // 95 GetObjectField, 97 GetBooleanField, … odd = get
+			return jniGetFieldValue(a1, a2)
+		}
+		jniSetFieldValue(a1, a2, a3)
 		return 0
 	case id >= 114 && id <= 143: // CallStatic<Type>Method[V/A]
-		return 0
+		return jniCallStatic(a1, a2)
 	case id >= 145 && id <= 162: // Get/SetStatic<Type>Field
+		if id%2 == 1 {
+			return jniGetStaticFieldValue(a1, a2)
+		}
+		jniSetStaticFieldValue(a1, a2, a3)
 		return 0
 	case id >= 171 && id <= 214: // array access and creation
 		// NOTE: the range must start at 171 (GetArrayLength). The string
@@ -445,9 +479,9 @@ func jniEnvFn(id, env, a1, a2, a3, a4, a5 uintptr) uintptr {
 		return jniFindClassHandle(cstr(a1))
 	case jniExceptionClear, jniExceptionCheck:
 		return 0
-	case jniNewGlobalRef, jniNewLocalRef:
+	case jniNewGlobalRef, jniNewLocalRef, jniNewWeakGlobalRef:
 		return a1
-	case jniDeleteGlobalRef, jniDeleteLocalRef:
+	case jniDeleteGlobalRef, jniDeleteLocalRef, jniDeleteWeakGlobalRef:
 		return 0
 	case jniIsSameObject:
 		if a1 == a2 {
@@ -455,7 +489,15 @@ func jniEnvFn(id, env, a1, a2, a3, a4, a5 uintptr) uintptr {
 		}
 		return 0
 	case jniGetObjectClass:
-		return a1 // class handles are returned as-is; objects are not modelled
+		// A fake object resolves to its class; a class handle is already one.
+		if name := jniObjectClass(a1); name != "" {
+			return jniFindClassHandle(name)
+		}
+		return a1
+	case jniAllocObject, jniNewObject, jniNewObjectV, jniNewObjectA:
+		// The engine constructs Java objects of its own (bundles, params):
+		// mint one of the requested class so its field reads resolve.
+		return NewFakeObject(jniClassName(a1))
 	case jniIsInstanceOf:
 		return 1
 	case jniGetMethodID, jniGetStaticMethodID:

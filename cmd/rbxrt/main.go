@@ -18,9 +18,18 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime"
 )
 
 func main() {
+	// The engine asks "am I on the thread that set me up?" with pthread_self
+	// and, if the answer is no, hands the work to that thread and blocks until
+	// it runs. Go may otherwise move this goroutine between OS threads at a
+	// blocking call, which would make a later boot call look like a foreign
+	// thread and deadlock the engine's main-thread queue. Pinning the main
+	// goroutine to the process's first OS thread keeps the engine's notion of
+	// the main thread and this goroutine's thread the same.
+	runtime.LockOSThread()
 	if len(os.Args) < 2 {
 		usage()
 		os.Exit(2)

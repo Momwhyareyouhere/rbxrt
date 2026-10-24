@@ -90,6 +90,17 @@ func goSyscall(number, a1, a2, a3, a4, a5 uintptr) uintptr {
 	if sp := guestCapturedRSP(); sp != 0 {
 		a6 = *(*uintptr)(unsafe.Pointer(sp + 8))
 	}
+	if debugFutex && number == 202 {
+		// Trace the wait/wake protocol itself. A thread that blocks in futex
+		// only makes progress when another thread issues the matching wake; if
+		// no wake for an address ever follows its wait, the stall is either a
+		// lost wakeup in this runtime or the engine never reaching the signaler.
+		n := atomic.AddUint64(&futexCallCount, 1)
+		if n <= 500000 {
+			fmt.Fprintf(os.Stderr, "rbxrt: futex%06d uaddr=%#x op=%#x val=%#x to=%#x val3=%#x\n",
+				n, a1, a2, a3, a4, a6)
+		}
+	}
 	r, _, err := syscall.RawSyscall6(number, a1, a2, a3, a4, a5, a6)
 	if debugSys && number == 202 { // futex
 		n := atomic.AddUint64(&futexCallCount, 1)
@@ -106,6 +117,7 @@ func goSyscall(number, a1, a2, a3, a4, a5 uintptr) uintptr {
 }
 
 var debugSys = os.Getenv("RBXRT_DEBUG_SYS") != ""
+var debugFutex = os.Getenv("RBXRT_FUTEX_TRACE") != ""
 var futexCallCount uint64
 
 func st64(dst uintptr, v uint64) { *(*uint64)(unsafe.Pointer(dst)) = v }
