@@ -87,7 +87,9 @@ var hostFuncs = map[string]any{
 	"getpid":                    goGetpid, "getppid": goGetppid, "gettid": goGettid,
 	"getuid": goGetuid, "geteuid": goGeteuid,
 	"getpagesize": goGetpagesize, "sysconf": goSysconf,
-	"getauxval": goGetauxval,
+	"getauxval":   goGetauxval,
+	"getnameinfo": goGetnameinfo,
+	"inet_pton":   goInetPton,
 
 	// environment
 	"getenv": goGetenv, "setenv": goSetenv, "unsetenv": goUnsetenv,
@@ -306,7 +308,12 @@ var hostFuncs = map[string]any{
 	"mktime": goMktime, "difftime": goDifftime,
 	"tzset": goTzset, "clock": goClock,
 	"strftime": goStrftime, "strftime_l": goStrftimeL,
+	"getaddrinfo": goGetaddrinfo,
+	"freeaddrinfo": goFreeaddrinfo,
+	"gai_strerror": goGaiStrerror,
+	"inet_ntop": goInetNtop,
 }
+
 
 func init() {
 	// __strcpy_chk is a real bionic function; fix the placeholder alias.

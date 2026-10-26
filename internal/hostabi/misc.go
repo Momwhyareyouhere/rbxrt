@@ -27,47 +27,49 @@ func goCopyInto(dst uintptr, src unsafe.Pointer, size uintptr) {
 }
 
 //go:noinline
+//go:nosplit
 func goStat(path, buf uintptr) int {
-	var st syscall.Stat_t
-	if err := syscall.Stat(cstr(path), &st); err != nil {
+	if r := rawSysNoEnter(4, path, buf, 0); int64(r) < 0 {
+		errnoVar = int32(-int64(r))
 		return -1
 	}
-	goCopyInto(buf, unsafe.Pointer(&st), unsafe.Sizeof(st))
 	return 0
 }
 
 //go:noinline
+//go:nosplit
 func goLstat(path, buf uintptr) int {
-	var st syscall.Stat_t
-	if err := syscall.Lstat(cstr(path), &st); err != nil {
+	if r := rawSysNoEnter(6, path, buf, 0); int64(r) < 0 {
+		errnoVar = int32(-int64(r))
 		return -1
 	}
-	goCopyInto(buf, unsafe.Pointer(&st), unsafe.Sizeof(st))
 	return 0
 }
 
 //go:noinline
+//go:nosplit
 func goFstat(fd, buf uintptr) int {
-	var st syscall.Stat_t
-	if err := syscall.Fstat(int(fd), &st); err != nil {
+	if r := rawSysNoEnter(5, fd, buf, 0); int64(r) < 0 {
+		errnoVar = int32(-int64(r))
 		return -1
 	}
-	goCopyInto(buf, unsafe.Pointer(&st), unsafe.Sizeof(st))
 	return 0
 }
 
 //go:noinline
 func goReadlink(path, buf, size uintptr) uintptr {
-	n, err := syscall.Readlink(cstr(path), unsafe.Slice((*byte)(unsafe.Pointer(buf)), int(size)))
-	if err != nil {
+	n := rawSysNoEnter(89, path, buf, size)
+	if int64(n) < 0 {
+		errnoVar = int32(-int64(n))
 		return ^uintptr(0)
 	}
-	return uintptr(n)
+	return n
 }
 
 //go:noinline
 func goFtruncate(fd, length uintptr) int {
-	if err := syscall.Ftruncate(int(fd), int64(length)); err != nil {
+	if r := rawSysNoEnter(77, fd, length, 0); int64(r) < 0 {
+		errnoVar = int32(-int64(r))
 		return -1
 	}
 	return 0
@@ -75,7 +77,8 @@ func goFtruncate(fd, length uintptr) int {
 
 //go:noinline
 func goFchmod(fd, mode uintptr) int {
-	if err := syscall.Fchmod(int(fd), uint32(mode)); err != nil {
+	if r := rawSysNoEnter(91, fd, mode, 0); int64(r) < 0 {
+		errnoVar = int32(-int64(r))
 		return -1
 	}
 	return 0
@@ -83,7 +86,8 @@ func goFchmod(fd, mode uintptr) int {
 
 //go:noinline
 func goFchown(fd, uid, gid uintptr) int {
-	if err := syscall.Fchown(int(fd), int(uid), int(gid)); err != nil {
+	if r := rawSysNoEnter6(93, fd, uid, gid, 0, 0, 0); int64(r) < 0 {
+		errnoVar = int32(-int64(r))
 		return -1
 	}
 	return 0
@@ -91,7 +95,8 @@ func goFchown(fd, uid, gid uintptr) int {
 
 //go:noinline
 func goRename(oldp, newp uintptr) int {
-	if err := syscall.Rename(cstr(oldp), cstr(newp)); err != nil {
+	if r := rawSysNoEnter(82, oldp, newp, 0); int64(r) < 0 {
+		errnoVar = int32(-int64(r))
 		return -1
 	}
 	return 0
@@ -99,11 +104,11 @@ func goRename(oldp, newp uintptr) int {
 
 //go:noinline
 func goRemove(path uintptr) int {
-	p := cstr(path)
-	if err := syscall.Unlink(p); err == nil || err == syscall.ENOENT {
+	if r := rawSysNoEnter(87, path, 0, 0); int64(r) >= 0 || int64(r) == -int64(syscall.ENOENT) {
 		return 0
 	}
-	if err := syscall.Rmdir(p); err != nil {
+	if r := rawSysNoEnter(84, path, 0, 0); int64(r) < 0 {
+		errnoVar = int32(-int64(r))
 		return -1
 	}
 	return 0
@@ -113,8 +118,9 @@ func goRemove(path uintptr) int {
 //
 //go:noinline
 func goMremap(old, oldSize, newSize, flags uintptr) uintptr {
-	r, _, errno := syscall.Syscall6(syscall.SYS_MREMAP, old, oldSize, newSize, flags, 0, 0)
-	if errno != 0 {
+	r := rawSysNoEnter6(25, old, oldSize, newSize, flags, 0, 0)
+	if int64(r) < 0 {
+		errnoVar = int32(-int64(r))
 		return ^uintptr(0)
 	}
 	return r
@@ -299,8 +305,11 @@ func futexWord(cond uintptr) *uint32 { return (*uint32)(unsafe.Pointer(cond)) }
 // futexDo performs a futex syscall. val3 (the bitset) is only meaningful for
 // FUTEX_WAIT_BITSET and is ignored by the other operations.
 func futexDo(uaddr, op, val, timeout uintptr) syscall.Errno {
-	_, _, e := syscall.Syscall6(syscall.SYS_FUTEX, uaddr, op, val, timeout, 0, futexBitsetMatchAny)
-	return e
+	r := rawSysNoEnter6(syscall.SYS_FUTEX, uaddr, op, val, timeout, 0, futexBitsetMatchAny)
+	if int64(r) < 0 {
+		return syscall.Errno(-int64(r))
+	}
+	return 0
 }
 
 //go:noinline

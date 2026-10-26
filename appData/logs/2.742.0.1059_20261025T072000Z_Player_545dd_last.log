@@ -1,0 +1,4 @@
+[FLog::Output] All use of Roblox services must comply with Roblox's Terms of Use, Privacy Policy, Community Standards, and applicable laws. Processing of User personal information is limited to the purposes expressly permitted therein.
+2026-10-25T07:20:00.997Z,0.997371,bfcd41e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-25T07:20:01.017Z,1.017094,bfcd41e0,6,Warning [FLog::LocalStorageHandler] Not available on the current platform.
+2026-10-25T07:20:01.017Z,1.017257,bfcd41e0,6,Info [FLog::NativeDM] continueAfterFlagsLoaded_:

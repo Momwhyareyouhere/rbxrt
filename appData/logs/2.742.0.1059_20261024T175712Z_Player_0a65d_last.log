@@ -1,0 +1,11 @@
+[FLog::Output] All use of Roblox services must comply with Roblox's Terms of Use, Privacy Policy, Community Standards, and applicable laws. Processing of User personal information is limited to the purposes expressly permitted therein.
+2026-10-24T17:57:15.697Z,3.697586,7321e0,6,Error [DFLog::LoadSettingsZstdDictionary] Platform assets path not set for dictionary loading.
+2026-10-24T17:57:15.697Z,3.697642,7321e0,6,Warning [FLog::Output] settingsUrl: https:///v2/settings-compressed/application/AndroidApp/3274c4fe58582a02c0acdd9dd5463043c248ff1045b054f59923a70665a8ca79.dcz
+2026-10-24T17:57:15.784Z,3.784285,7321e0,6 [FLog::AndroidGLView] nativeInitClientSettings
+2026-10-24T17:57:15.784Z,3.784389,7321e0,6 [FLog::Error] Error loading settings: [Does not contain application settings table] settings size = 2
+2026-10-24T17:57:15.784Z,3.784422,7321e0,6 [FLog::AndroidGLView] initClientSettingsAndroid: ParseFailure. Error = [Does not contain application settings table].
+2026-10-24T17:57:15.784Z,3.784447,7321e0,6 [FLog::AndroidGLView] nativePostClientSettingsLoadedInitialization3
+2026-10-24T17:57:15.784Z,3.784495,7321e0,6 [FLog::ClientRunInfo] RobloxGitHash: 6526ec9ec5fd975701b94c22996097d852774f08
+2026-10-24T17:57:15.784Z,3.784518,7321e0,6 [FLog::ClientRunInfo] The base url is 
+2026-10-24T17:57:15.784Z,3.784541,7321e0,6 [FLog::ClientRunInfo] The channel is production
+2026-10-24T17:57:15.784Z,3.784738,7321e0,6 [LOGCHANNELS + 1] RBXCRASH: FatalRuntimeError (Can't initialize the TaskScheduler before flags have been loaded)

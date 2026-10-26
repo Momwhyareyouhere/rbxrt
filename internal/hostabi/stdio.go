@@ -102,11 +102,12 @@ func goFopen(path, mode uintptr) uintptr {
 	if !ok {
 		return 0
 	}
-	fd, err := syscall.Open(cstr(path), flags, 0666)
-	if err != nil {
+	fd := rawSysNoEnter(2, path, uintptr(flags), 0666)
+	debugAssetFileOpen("fopen", path, fd)
+	if int64(fd) < 0 {
 		return 0
 	}
-	return registerFile(&cFile{fd: fd, owned: true, ungot: -1, append: flags&syscall.O_APPEND != 0})
+	return registerFile(&cFile{fd: int(fd), owned: true, ungot: -1, append: flags&syscall.O_APPEND != 0})
 }
 
 //go:noinline
@@ -126,7 +127,7 @@ func goFclose(stream uintptr) int {
 	cf.mu.Lock()
 	defer cf.mu.Unlock()
 	if cf.owned {
-		syscall.Close(cf.fd)
+		rawSysNoEnter(3, uintptr(cf.fd), 0, 0)
 	}
 	dropFile(stream)
 	return 0
@@ -155,9 +156,11 @@ func fileRead(cf *cFile, buf []byte) int {
 		n = 1
 	}
 	for n < len(buf) {
-		r, err := syscall.Read(cf.fd, buf[n:])
-		n += r
-		if err != nil {
+		r := rawSysNoEnter(0, uintptr(cf.fd), uintptr(unsafe.Pointer(&buf[n])), uintptr(len(buf)-n))
+		if int64(r) < 0 {
+			if int64(r) == -int64(syscall.EINTR) {
+				continue
+			}
 			cf.err = true
 			break
 		}
@@ -165,6 +168,7 @@ func fileRead(cf *cFile, buf []byte) int {
 			cf.eof = true
 			break
 		}
+		n += int(r)
 	}
 	return n
 }
@@ -174,15 +178,18 @@ func fileWrite(cf *cFile, buf []byte) int {
 	defer cf.mu.Unlock()
 	n := 0
 	for n < len(buf) {
-		w, err := syscall.Write(cf.fd, buf[n:])
-		n += w
-		if err != nil {
+		w := rawSysNoEnter(1, uintptr(cf.fd), uintptr(unsafe.Pointer(&buf[n])), uintptr(len(buf)-n))
+		if int64(w) < 0 {
+			if int64(w) == -int64(syscall.EINTR) {
+				continue
+			}
 			cf.err = true
 			break
 		}
 		if w == 0 {
 			break
 		}
+		n += int(w)
 	}
 	return n
 }
@@ -239,7 +246,7 @@ func goFseek(stream, off, whence uintptr) int {
 	cf.eof = false
 	cf.ungot = -1
 	cf.mu.Unlock()
-	if _, err := syscall.Seek(cf.fd, int64(off), int(whence)); err != nil {
+	if r := rawSysNoEnter(8, uintptr(cf.fd), off, whence); int64(r) < 0 {
 		return -1
 	}
 	return 0
@@ -251,10 +258,11 @@ func goFtell(stream uintptr) int64 {
 	if cf == nil {
 		return -1
 	}
-	off, err := syscall.Seek(cf.fd, 0, 1 /* SEEK_CUR */)
-	if err != nil {
+	r := rawSysNoEnter(8, uintptr(cf.fd), 0, 1 /* SEEK_CUR */)
+	if int64(r) < 0 {
 		return -1
 	}
+	off := int64(r)
 	cf.mu.Lock()
 	if cf.ungot >= 0 {
 		off--

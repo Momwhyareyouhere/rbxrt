@@ -63,14 +63,15 @@ const (
 // raw result. The Go errno is discarded: bionic's wrappers return the raw value
 // too and let the caller consult errno via a later call.
 func rawSys(trap, a, b, c uintptr) uintptr {
-	r, _, _ := syscall.Syscall(trap, a, b, c)
-	return r
+	return rawSysNoEnter(trap, a, b, c)
 }
 
 func rawSys6(trap, a, b, c, d, e, f uintptr) uintptr {
-	r, _, _ := syscall.Syscall6(trap, a, b, c, d, e, f)
-	return r
+	return rawSysNoEnter6(trap, a, b, c, d, e, f)
 }
+
+func rawSysNoEnter(trap, a, b, c uintptr) uintptr
+func rawSysNoEnter6(trap, a, b, c, d, e, f uintptr) uintptr
 
 // goSyscall implements bionic's syscall(long number, ...). The host thunk
 // captures up to six integer arguments, i.e. the number plus five syscall
@@ -80,6 +81,7 @@ func rawSys6(trap, a, b, c, d, e, f uintptr) uintptr {
 // runtime, which the guest would never see).
 //
 //go:noinline
+//go:nosplit
 func goSyscall(number, a1, a2, a3, a4, a5 uintptr) uintptr {
 	// bionic's syscall() is variadic. Our thunk forwards the six integer
 	// argument registers, but a call with a seventh C argument (futex's
@@ -101,7 +103,7 @@ func goSyscall(number, a1, a2, a3, a4, a5 uintptr) uintptr {
 				n, a1, a2, a3, a4, a6)
 		}
 	}
-	r, _, err := syscall.RawSyscall6(number, a1, a2, a3, a4, a5, a6)
+	r := rawSysNoEnter6(number, a1, a2, a3, a4, a5, a6)
 	if debugSys && number == 202 { // futex
 		n := atomic.AddUint64(&futexCallCount, 1)
 		if n <= 8 || n%1000000 == 0 {
@@ -109,8 +111,8 @@ func goSyscall(number, a1, a2, a3, a4, a5 uintptr) uintptr {
 			if a4 != 0 {
 				to = fmt.Sprintf("ts={%d,%d}", *(*int64)(unsafe.Pointer(a4)), *(*int64)(unsafe.Pointer(a4 + 8)))
 			}
-			fmt.Fprintf(os.Stderr, "rbxrt: futex uaddr=%#x op=%#x val=%#x to=%#x %s val3=%#x r=%d err=%v nowUs=%d n=%d\n",
-				a1, a2, a3, a4, to, a6, int64(r), err, hostMonotonicNowNanos(1)/1000, n)
+			fmt.Fprintf(os.Stderr, "rbxrt: futex uaddr=%#x op=%#x val=%#x to=%#x %s val3=%#x r=%d errno=%d nowUs=%d n=%d\n",
+				a1, a2, a3, a4, to, a6, int64(r), -int64(r), hostMonotonicNowNanos(1)/1000, n)
 		}
 	}
 	return r
@@ -217,9 +219,13 @@ func goExecv(path, argv uintptr) int {
 // reported a bogus CPU. The output buffer must therefore be ours.
 //
 //go:noinline
+//go:nosplit
 func goSchedGetcpu(_, _, _ uintptr) int {
 	var cpu int32
-	if r := rawSys(nSysGetcpu, uintptr(unsafe.Pointer(&cpu)), 0, 0); r != 0 {
+	// Do not go through syscall.Syscall here: this callback can be entered while
+	// the goroutine is executing on the guest stack, which Go's entersyscall
+	// stack validation rejects. The raw assembly syscall does not switch stacks.
+	if r := rawSysNoEnter(nSysGetcpu, uintptr(unsafe.Pointer(&cpu)), 0, 0); r != 0 {
 		return int(int64(r))
 	}
 	return int(cpu)

@@ -1,0 +1,85 @@
+[FLog::Output] All use of Roblox services must comply with Roblox's Terms of Use, Privacy Policy, Community Standards, and applicable laws. Processing of User personal information is limited to the purposes expressly permitted therein.
+2026-10-25T06:17:17.960Z,1.960026,dbd3e1e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-25T06:17:17.970Z,1.970547,dbd3e1e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-25T06:17:17.978Z,1.978760,dbd3e1e0,6,Warning [FLog::LocalStorageHandler] Not available on the current platform.
+2026-10-25T06:17:17.978Z,1.978911,dbd3e1e0,6,Info [FLog::NativeDM] continueAfterFlagsLoaded_:
+2026-10-25T06:17:18.036Z,2.036740,dbd3e1e0,6 [FLog::Output] RobloxChannel has been set to production
+2026-10-25T06:17:18.036Z,2.036816,dbd3e1e0,6 [FLog::AndroidGLView] nativeInitClientSettings
+2026-10-25T06:17:18.042Z,2.042743,dbd3e1e0,6 [FLog::AndroidGLView] nativePostClientSettingsLoadedInitialization3
+2026-10-25T06:17:18.042Z,2.042861,dbd3e1e0,6 [FLog::ClientRunInfo] RobloxGitHash: 6526ec9ec5fd975701b94c22996097d852774f08
+2026-10-25T06:17:18.042Z,2.042900,dbd3e1e0,6 [FLog::ClientRunInfo] The base url is https://www.roblox.com
+2026-10-25T06:17:18.042Z,2.042916,dbd3e1e0,6 [FLog::ClientRunInfo] The channel is production
+2026-10-25T06:17:18.045Z,2.045280,dbd3e1e0,6,Critical [DFLog::Mimalloc] Mimalloc integration detected, settings:
+2026-10-25T06:17:18.045Z,2.045376,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_show_errors=0
+2026-10-25T06:17:18.045Z,2.045406,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_show_stats=0
+2026-10-25T06:17:18.045Z,2.045425,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_verbose=0
+2026-10-25T06:17:18.045Z,2.045440,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_eager_commit=1
+2026-10-25T06:17:18.045Z,2.045455,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_arena_eager_commit=2
+2026-10-25T06:17:18.045Z,2.045470,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_purge_decommits=1
+2026-10-25T06:17:18.045Z,2.045497,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_allow_large_os_pages=0
+2026-10-25T06:17:18.045Z,2.045512,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_reserve_huge_os_pages=0
+2026-10-25T06:17:18.045Z,2.045527,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_reserve_huge_os_pages_at=-1
+2026-10-25T06:17:18.045Z,2.045542,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_reserve_os_memory=0
+2026-10-25T06:17:18.045Z,2.045556,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_deprecated_segment_cache=0
+2026-10-25T06:17:18.045Z,2.045570,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_deprecated_page_reset=0
+2026-10-25T06:17:18.045Z,2.045584,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_abandoned_page_purge=0
+2026-10-25T06:17:18.045Z,2.045598,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_purge_delay=1000
+2026-10-25T06:17:18.045Z,2.045612,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_deprecated_segment_reset=0
+2026-10-25T06:17:18.045Z,2.045629,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_eager_commit_delay=1
+2026-10-25T06:17:18.045Z,2.045643,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_use_numa_nodes=0
+2026-10-25T06:17:18.045Z,2.045657,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_disallow_os_alloc=0
+2026-10-25T06:17:18.045Z,2.045671,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_os_tag=100
+2026-10-25T06:17:18.045Z,2.045685,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_max_errors=32
+2026-10-25T06:17:18.045Z,2.045699,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_max_warnings=32
+2026-10-25T06:17:18.045Z,2.045714,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_deprecated_max_segment_reclaim=10
+2026-10-25T06:17:18.045Z,2.045730,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_destroy_on_exit=0
+2026-10-25T06:17:18.045Z,2.045757,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_arena_reserve=1048576
+2026-10-25T06:17:18.045Z,2.045770,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_arena_purge_mult=1
+2026-10-25T06:17:18.045Z,2.045796,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_deprecated_purge_extend_delay=1
+2026-10-25T06:17:18.045Z,2.045810,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_disallow_arena_alloc=0
+2026-10-25T06:17:18.045Z,2.045823,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_retry_on_oom=400
+2026-10-25T06:17:18.045Z,2.045855,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_visit_abandoned=0
+2026-10-25T06:17:18.045Z,2.045879,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_guarded_min=0
+2026-10-25T06:17:18.045Z,2.045894,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_guarded_max=1073741824
+2026-10-25T06:17:18.045Z,2.045915,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_guarded_precise=0
+2026-10-25T06:17:18.045Z,2.045932,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_guarded_sample_rate=0
+2026-10-25T06:17:18.045Z,2.045947,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_guarded_sample_seed=0
+2026-10-25T06:17:18.045Z,2.045962,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_generic_collect=10000
+2026-10-25T06:17:18.045Z,2.045976,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_page_reclaim_on_free=0
+2026-10-25T06:17:18.045Z,2.045999,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_page_full_retain=2
+2026-10-25T06:17:18.046Z,2.046101,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_page_max_candidates=4
+2026-10-25T06:17:18.046Z,2.046129,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_max_vabits=0
+2026-10-25T06:17:18.046Z,2.046143,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_pagemap_commit=0
+2026-10-25T06:17:18.046Z,2.046170,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_page_commit_on_demand=0
+2026-10-25T06:17:18.046Z,2.046184,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_page_max_reclaim=-1
+2026-10-25T06:17:18.046Z,2.046198,dbd3e1e0,6,Info [DFLog::Mimalloc] mi_option_page_cross_thread_max_reclaim=32
+2026-10-25T06:17:18.046Z,2.046212,dbd3e1e0,6,Critical [FLog::Output] Build system id: 2
+2026-10-25T06:17:18.046Z,2.046908,dbd3e1e0,6,Info [FLog::AppMemUsageStatus] 923286370
+2026-10-25T06:17:18.049Z,2.049197,dbd3e1e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-25T06:17:18.049Z,2.049604,dbd3e1e0,6,Info [DFLog::FlagCache] [FlagCache] writeFlagCache: Writing flag cache file to : cache/flag_cache.dat
+2026-10-25T06:17:18.049Z,2.049720,dbd3e1e0,6,Info [DFLog::FlagCache] [FlagCache] writeFlagCache: Writing uncompressed flag cache data
+2026-10-25T06:17:18.049Z,2.049759,dbd3e1e0,6,Info [DFLog::FlagCache] [FlagCache] writeFlagCache: Successfully wrote 31 bytes to file: cache/flag_cache.dat, time: 0.15466900000005168ms
+2026-10-25T06:17:18.050Z,2.050336,dbd3e1e0,6,Info [FLog::TombstoneCache] [FlagCache] Tombstone 1, expiry time 60, holdout false, channel 'production', written to file: cache/tombstone.dat
+2026-10-25T06:17:18.069Z,2.069593,dbd3e1e0,6,Warning [FLog::LocalStorageHandler] Not available on the current platform.
+2026-10-25T06:17:18.069Z,2.069739,dbd3e1e0,6 [FLog::Output] setAssetFolder /tmp/opencode/rbxrt-data/assets/content
+2026-10-25T06:17:18.069Z,2.069920,dbd3e1e0,6 [FLog::Output] setExtraAssetFolder 
+2026-10-25T06:17:18.069Z,2.069974,dbd3e1e0,6,Info [FLog::JNIAppBridge] nativeAppBridgeV2Init:
+2026-10-25T06:17:18.071Z,2.071173,dbd3e1e0,6 [FLog::SingleSurfaceApp] initializeWithAppStarter
+2026-10-25T06:17:18.071Z,2.071257,dbd3e1e0,6 [FLog::SingleSurfaceApp] initializeSingleton
+2026-10-25T06:17:18.075Z,2.075643,dbd3e1e0,6 [FLog::Output] Evaluating deferred inferred crashes
+2026-10-25T06:17:18.088Z,2.088967,dbd3e1e0,6 [FLog::SingleSurfaceApp] setStage: (stage:Native)
+2026-10-25T06:17:18.089Z,2.089053,dbd3e1e0,6,Warning [FLog::SingleSurfaceApp] instantiate controllers
+2026-10-25T06:17:18.089Z,2.089236,dbd3e1e0,6 [FLog::SurfaceController] SurfaceController[_:1]::SurfaceController, count: 1
+2026-10-25T06:17:18.089Z,2.089299,dbd3e1e0,6,Warning [FLog::SingleSurfaceApp] instantiate experience coordinator
+2026-10-25T06:17:18.123Z,2.123923,dbd3e1e0,6,Info [DFLog::CoordinatorMemoryPressure] Setting memory pressure threshold to none
+2026-10-25T06:17:18.154Z,2.154099,dbd3e1e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-25T06:17:21.050Z,5.050622,dbd3e1e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-25T06:17:21.057Z,5.057016,dbd3e1e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-25T06:17:21.077Z,5.077787,dbd3e1e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-25T06:17:21.078Z,5.078589,dbd3e1e0,6,Info [FLog::CrossExperienceVoiceController] CrossExperienceVoiceController::CrossExperienceVoiceController() constructor
+2026-10-25T06:17:21.079Z,5.079577,dbd3e1e0,6,Info [FLog::PerformanceControlUtil] PerformanceControlUtil: registered single surface tunable (id=0)
+2026-10-25T06:17:21.080Z,5.080725,dbd3e1e0,6,Info [FLog::JNIAppBridge] nativeAppBridgeV2StartApp:
+2026-10-25T06:17:21.080Z,5.080928,dbd3e1e0,6 [FLog::SingleSurfaceApp] startLuaApp: (stage:Native).
+2026-10-25T06:17:21.080Z,5.080951,dbd3e1e0,6 [FLog::SingleSurfaceApp] returnToLuaApp: (stage:Native).
+2026-10-25T06:17:21.080Z,5.080990,dbd3e1e0,6 [FLog::SingleSurfaceApp] returnToLuaAppInternal: ... App not yet initialized, returning from game.
+2026-10-25T06:17:21.147Z,5.147562,dbd3e1e0,6,Error [FLog::Output] Failed to scan size, resident, and shared

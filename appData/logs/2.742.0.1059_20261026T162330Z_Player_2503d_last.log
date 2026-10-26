@@ -1,0 +1,8 @@
+[FLog::Output] All use of Roblox services must comply with Roblox's Terms of Use, Privacy Policy, Community Standards, and applicable laws. Processing of User personal information is limited to the purposes expressly permitted therein.
+2026-10-26T16:23:30.571Z,0.571170,83e341e0,6 [FLog::Output] RobloxChannel has been set to production
+2026-10-26T16:23:30.571Z,0.571244,83e341e0,6 [FLog::AndroidGLView] nativeInitClientSettings
+2026-10-26T16:23:30.574Z,0.574115,83e341e0,6,Info [DFLog::FlagCache] [FlagCache] writeFlagCache: Writing flag cache file to : cache/flag_cache.dat
+2026-10-26T16:23:30.581Z,0.581238,83e341e0,6,Info [DFLog::FlagCache] [FlagCache] writeFlagCache: Writing uncompressed flag cache data
+2026-10-26T16:23:30.581Z,0.581264,83e341e0,6,Info [DFLog::FlagCache] [FlagCache] writeFlagCache: Successfully wrote 31 bytes to file: cache/flag_cache.dat, time: 7.152016000000039ms
+2026-10-26T16:23:30.581Z,0.581324,83e341e0,6,Info [FLog::TombstoneCache] [FlagCache] Tombstone 0, expiry -1, holdout false, channel '' (production), read from file: cache/tombstone.dat
+2026-10-26T16:23:30.601Z,0.601662,83e341e0,6,Info [FLog::TombstoneCache] [FlagCache] Tombstone 1, expiry time 60, holdout false, channel 'production', written to file: cache/tombstone.dat

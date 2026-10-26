@@ -4,6 +4,7 @@ import (
 	"debug/elf"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -400,6 +401,10 @@ func bootWatchdog(im *loader.Image) func() {
 			}
 			fmt.Fprintf(os.Stderr, "boot: guest thread %#x last-host=%s depth=%d rbp=%#x\n",
 				ts.Base, what, ts.Depth, ts.RBP)
+			for i, ret := range hostabi.GuestFrameChain(ts.RBP, ts.StackTop, 24) {
+				fmt.Fprintf(os.Stderr, "  guestframe[%d] pc=%#x image+%#x\n",
+					i, ret, hostabi.GuestImageOffset(ret))
+			}
 		}
 		os.Exit(3)
 	}()
@@ -446,8 +451,37 @@ func javaBootKick(im *loader.Image) (pump func() int) {
 			return
 		}
 		fmt.Printf("boot: calling %s(arg=%#x)\n", name, arg)
+		if os.Getenv("RBXRT_DEBUG_TLS") != "" {
+			hostabi.TraceTLSCalls(500)
+		}
 		rv := hostabi.CallGuestInt3(fn, env, cls, arg)
 		fmt.Printf("boot: %s returned %#x\n", name, rv)
+	}
+	callOther := func(class, name string, arg uintptr) {
+		symbol := "Java_" + strings.ReplaceAll(class, "/", "_") + "_" + name
+		fn, ok := im.Exports[symbol]
+		if !ok {
+			fmt.Printf("boot: %s is not exported\n", name)
+			return
+		}
+		classHandle := hostabi.FindClassHandle(class)
+		fmt.Printf("boot: calling %s(arg=%#x)\n", name, arg)
+		rv := hostabi.CallGuestInt3(fn, env, classHandle, arg)
+		fmt.Printf("boot: %s returned %#x\n", name, uintptr(rv))
+	}
+	callArgs := func(class, name string, args ...uintptr) uintptr {
+		symbol := "Java_" + strings.ReplaceAll(class, "/", "_") + "_" + name
+		fn, ok := im.Exports[symbol]
+		if !ok {
+			fmt.Printf("boot: %s is not exported\n", name)
+			return 0
+		}
+		var a [8]uintptr
+		copy(a[:], args)
+		fmt.Printf("boot: calling %s\n", name)
+		rv := hostabi.CallGuestInt8(fn, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7])
+		fmt.Printf("boot: %s returned %#x\n", name, uintptr(rv))
+		return uintptr(rv)
 	}
 
 	// A startup native that never returns looks exactly like a slow one unless
@@ -458,6 +492,23 @@ func javaBootKick(im *loader.Image) (pump func() int) {
 	defer stopWatchdog()
 
 	call("nativeGameGlobalInit", 0)
+	// Android initializes the native flag provider from its preferences before
+	// loading client settings or constructing the app bridge. This clean launch
+	// has no persisted overrides, so pass an empty fake String array.
+	callOther("com/roblox/client/flags/FlagJniInterface", "nativeInitializeNativeFlags",
+		hostabi.NewFakeObject("[Ljava/lang/String;"))
+	callArgs("com/roblox/engine/jni/NativeSettingsInterface", "nativeSetBaseUrl",
+		env, hostabi.FindClassHandle("com/roblox/engine/jni/NativeSettingsInterface"),
+		hostabi.NewJavaString("https://www.roblox.com"), hostabi.NewJavaString("https://api.roblox.com"))
+	callOther("com/roblox/engine/jni/NativeSettingsInterface", "nativeSetRobloxChannel",
+		hostabi.NewJavaString("production"))
+	callArgs("com/roblox/engine/jni/NativeGLInterface", "nativeInitClientSettings",
+		env, cls, hostabi.NewJavaString(`{"applicationSettings":{}}`),
+		hostabi.NewJavaString(""), hostabi.NewJavaString("production"))
+	callArgs("com/roblox/engine/jni/NativeGLInterface", "nativePostClientSettingsLoadedInitialization3",
+		env, cls, hostabi.NewFakeObject("java/util/Collections$EmptyList"))
+	callOther("com/roblox/client/startup/MainGameActivity", "nativeSetAssetPath",
+		hostabi.NewJavaString(filepath.Join(rbxrtDataDir(), "assets", "content")))
 	call("nativeAppBridgeV2InitWithParams", hostabi.NewFakeObject(classInitArgs))
 	call("nativeAppBridgeV2StartAppWithParams", hostabi.NewFakeObject(classStartApp))
 

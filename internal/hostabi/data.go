@@ -2,7 +2,6 @@ package hostabi
 
 import (
 	"math/rand"
-	"os"
 	"unsafe"
 )
 
@@ -101,5 +100,3 @@ func DataSymbols() map[string]uintptr {
 		"AMEDIAFORMAT_KEY_WIDTH":            uintptr(unsafe.Pointer(&mediaWidth)),
 	}
 }
-
-var _ = os.Getpid

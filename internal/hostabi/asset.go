@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"unsafe"
 )
 
@@ -102,8 +101,16 @@ func assetManager() *aAssetManager {
 func assetCandidates(name string) []string {
 	name = strings.TrimPrefix(name, "/")
 	c := []string{name}
+	// The engine's rbxasset:// URIs are opened without the content/ prefix,
+	// while the APK stores those resources below assets/content/.
+	if !strings.HasPrefix(name, "content/") {
+		c = append(c, "content/"+name)
+	}
 	if !strings.HasPrefix(name, "assets/") {
 		c = append(c, "assets/"+name)
+		if !strings.HasPrefix(name, "content/") {
+			c = append(c, "assets/content/"+name)
+		}
 	}
 	if p := path.Join("assets", name); p != c[len(c)-1] {
 		c = append(c, p)
@@ -293,16 +300,20 @@ func goAAssetOpenFileDescriptor(h, outStart, outLength uintptr) int {
 // memfdFromBytes creates an anonymous file holding b and returns its descriptor.
 func memfdFromBytes(name string, b []byte) int {
 	nb := append([]byte(name), 0)
-	fd, _, errno := syscall.Syscall(sysMemfdCreate, uintptr(unsafe.Pointer(&nb[0])), mfdCloexec, 0)
-	if errno != 0 {
-		fmt.Fprintf(os.Stderr, "rbxrt: memfd_create: %v\n", errno)
+	fd := rawSysNoEnter(sysMemfdCreate, uintptr(unsafe.Pointer(&nb[0])), mfdCloexec, 0)
+	if int64(fd) < 0 {
+		fmt.Fprintf(os.Stderr, "rbxrt: memfd_create: errno=%d\n", -int64(fd))
 		return -1
 	}
-	if _, err := syscall.Write(int(fd), b); err != nil {
-		syscall.Close(int(fd))
-		return -1
+	for len(b) > 0 {
+		n := rawSysNoEnter(1, fd, uintptr(unsafe.Pointer(&b[0])), uintptr(len(b)))
+		if int64(n) < 0 {
+			rawSysNoEnter(3, fd, 0, 0)
+			return -1
+		}
+		b = b[int(n):]
 	}
-	syscall.Seek(int(fd), 0, 0)
+	rawSysNoEnter(8, fd, 0, 0)
 	return int(fd)
 }
 

@@ -91,15 +91,19 @@ func goFinitef(x float32) int {
 func goIlogb(x float64) int { return math.Ilogb(x) }
 
 //go:noinline
+//go:nosplit
 func goLlroundf(x float32) int64 { return int64(math.RoundToEven(float64(x))) }
 
 //go:noinline
+//go:nosplit
 func goLroundf(x float32) int64 { return int64(math.RoundToEven(float64(x))) }
 
 //go:noinline
+//go:nosplit
 func goLlround(x float64) int64 { return int64(math.RoundToEven(x)) }
 
 //go:noinline
+//go:nosplit
 func goLround(x float64) int64 { return int64(math.RoundToEven(x)) }
 
 //go:noinline

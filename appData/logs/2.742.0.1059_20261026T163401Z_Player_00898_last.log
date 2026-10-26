@@ -1,0 +1,12 @@
+[FLog::Output] All use of Roblox services must comply with Roblox's Terms of Use, Privacy Policy, Community Standards, and applicable laws. Processing of User personal information is limited to the purposes expressly permitted therein.
+2026-10-26T16:34:01.636Z,0.636141,a44601e0,6,Error [DFLog::FlagCache] [FlagCache] Failed to get last write time for settings file: cache/flag_cache.dat, error: no such file or directory
+2026-10-26T16:34:01.636Z,0.636268,a44601e0,6,Info [FLog::NativeDM] ... getFlags: flag cache miss (status = 5); falling back to CDN.
+2026-10-26T16:34:01.636Z,0.636437,a44601e0,6,Error [DFLog::LoadSettingsZstdDictionary] Platform assets path not set for dictionary loading.
+2026-10-26T16:34:01.636Z,0.636458,a44601e0,6,Warning [FLog::Output] settingsUrl: https:///v2/settings-compressed/application/AndroidApp/3274c4fe58582a02c0acdd9dd5463043c248ff1045b054f59923a70665a8ca79.dcz
+2026-10-26T16:34:01.676Z,0.676757,a44601e0,6 [FLog::Output] RobloxChannel has been set to production
+2026-10-26T16:34:01.676Z,0.676841,a44601e0,6 [FLog::AndroidGLView] nativeInitClientSettings
+2026-10-26T16:34:01.682Z,0.682397,a44601e0,6,Info [DFLog::FlagCache] [FlagCache] writeFlagCache: Writing flag cache file to : cache/flag_cache.dat
+2026-10-26T16:34:01.697Z,0.697522,a44601e0,6,Info [DFLog::FlagCache] [FlagCache] writeFlagCache: Writing uncompressed flag cache data
+2026-10-26T16:34:01.697Z,0.697590,a44601e0,6,Info [DFLog::FlagCache] [FlagCache] writeFlagCache: Successfully wrote 31 bytes to file: cache/flag_cache.dat, time: 15.198402ms
+2026-10-26T16:34:01.699Z,0.699021,a44601e0,6,Info [FLog::TombstoneCache] [FlagCache] Tombstone 0, expiry -1, holdout false, channel '' (production), read from file: cache/tombstone.dat
+2026-10-26T16:34:01.728Z,0.728674,a44601e0,6,Info [FLog::TombstoneCache] [FlagCache] Tombstone 1, expiry time 60, holdout false, channel 'production', written to file: cache/tombstone.dat

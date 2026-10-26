@@ -1,0 +1,65 @@
+[FLog::Output] All use of Roblox services must comply with Roblox's Terms of Use, Privacy Policy, Community Standards, and applicable laws. Processing of User personal information is limited to the purposes expressly permitted therein.
+2026-10-26T12:29:07.507Z,0.507503,46f481e0,6,Info [FLog::TombstoneCache] [FlagCache] Tombstone 0, expiry -1, holdout false, channel '' (production), read from file: cache/tombstone.dat
+2026-10-26T12:29:07.513Z,0.513002,46f481e0,6,Info [DFLog::FlagCache] [FlagCache] No cached expiry time found in tombstone, skipping expiry precheck
+2026-10-26T12:29:07.513Z,0.513049,46f481e0,6,Info [DFLog::FlagCache] [FlagCache] Channel mismatch precheck passed: channel 'production'
+2026-10-26T12:29:07.513Z,0.513068,46f481e0,6,Info [DFLog::FlagCache] [FlagCache] Holdout precheck passed
+2026-10-26T12:29:07.513Z,0.513083,46f481e0,6,Warning [DFLog::FlagCache] [FlagCache] Tombstone default value precheck failed: startup tombstone is 0
+2026-10-26T12:29:07.513Z,0.513145,46f481e0,6,Info [FLog::NativeDM] ... getFlags: flag cache miss (status = 8); falling back to CDN.
+2026-10-26T12:29:07.513Z,0.513329,46f481e0,6,Error [DFLog::LoadSettingsZstdDictionary] Platform assets path not set for dictionary loading.
+2026-10-26T12:29:07.513Z,0.513371,46f481e0,6,Warning [FLog::Output] settingsUrl: https:///v2/settings-compressed/application/AndroidApp/3274c4fe58582a02c0acdd9dd5463043c248ff1045b054f59923a70665a8ca79.dcz
+2026-10-26T12:29:07.659Z,0.659575,46f481e0,6 [FLog::Output] RobloxChannel has been set to production
+2026-10-26T12:29:07.659Z,0.659747,46f481e0,6 [FLog::AndroidGLView] nativeInitClientSettings
+2026-10-26T12:29:07.667Z,0.667042,46f481e0,6,Info [DFLog::FlagCache] [FlagCache] writeFlagCache: Writing flag cache file to : cache/flag_cache.dat
+2026-10-26T12:29:07.667Z,0.667432,46f481e0,6,Info [DFLog::FlagCache] [FlagCache] writeFlagCache: Writing uncompressed flag cache data
+2026-10-26T12:29:07.667Z,0.667504,46f481e0,6,Info [DFLog::FlagCache] [FlagCache] writeFlagCache: Successfully wrote 31 bytes to file: cache/flag_cache.dat, time: 0.4730809999999863ms
+2026-10-26T12:29:07.668Z,0.668116,46f481e0,6 [FLog::AndroidGLView] nativePostClientSettingsLoadedInitialization3
+2026-10-26T12:29:07.668Z,0.668359,46f481e0,6 [FLog::ClientRunInfo] RobloxGitHash: 6526ec9ec5fd975701b94c22996097d852774f08
+2026-10-26T12:29:07.668Z,0.668437,46f481e0,6 [FLog::ClientRunInfo] The base url is https://www.roblox.com
+2026-10-26T12:29:07.668Z,0.668480,46f481e0,6 [FLog::ClientRunInfo] The channel is production
+2026-10-26T12:29:07.670Z,0.670978,46f481e0,6,Info [FLog::TombstoneCache] [FlagCache] Tombstone 1, expiry time 60, holdout false, channel 'production', written to file: cache/tombstone.dat
+2026-10-26T12:29:07.672Z,0.672422,46f481e0,6,Critical [DFLog::Mimalloc] Mimalloc integration detected, settings:
+2026-10-26T12:29:07.672Z,0.672626,46f481e0,6,Info [DFLog::Mimalloc] mi_option_show_errors=0
+2026-10-26T12:29:07.672Z,0.672675,46f481e0,6,Info [DFLog::Mimalloc] mi_option_show_stats=0
+2026-10-26T12:29:07.672Z,0.672722,46f481e0,6,Info [DFLog::Mimalloc] mi_option_verbose=0
+2026-10-26T12:29:07.672Z,0.672766,46f481e0,6,Info [DFLog::Mimalloc] mi_option_eager_commit=1
+2026-10-26T12:29:07.672Z,0.672811,46f481e0,6,Info [DFLog::Mimalloc] mi_option_arena_eager_commit=2
+2026-10-26T12:29:07.672Z,0.672895,46f481e0,6,Info [DFLog::Mimalloc] mi_option_purge_decommits=1
+2026-10-26T12:29:07.672Z,0.672939,46f481e0,6,Info [DFLog::Mimalloc] mi_option_allow_large_os_pages=0
+2026-10-26T12:29:07.672Z,0.672982,46f481e0,6,Info [DFLog::Mimalloc] mi_option_reserve_huge_os_pages=0
+2026-10-26T12:29:07.673Z,0.673026,46f481e0,6,Info [DFLog::Mimalloc] mi_option_reserve_huge_os_pages_at=-1
+2026-10-26T12:29:07.673Z,0.673077,46f481e0,6,Info [DFLog::Mimalloc] mi_option_reserve_os_memory=0
+2026-10-26T12:29:07.673Z,0.673122,46f481e0,6,Info [DFLog::Mimalloc] mi_option_deprecated_segment_cache=0
+2026-10-26T12:29:07.673Z,0.673164,46f481e0,6,Info [DFLog::Mimalloc] mi_option_deprecated_page_reset=0
+2026-10-26T12:29:07.673Z,0.673242,46f481e0,6,Info [DFLog::Mimalloc] mi_option_abandoned_page_purge=0
+2026-10-26T12:29:07.673Z,0.673323,46f481e0,6,Info [DFLog::Mimalloc] mi_option_purge_delay=1000
+2026-10-26T12:29:07.673Z,0.673370,46f481e0,6,Info [DFLog::Mimalloc] mi_option_deprecated_segment_reset=0
+2026-10-26T12:29:07.673Z,0.673416,46f481e0,6,Info [DFLog::Mimalloc] mi_option_eager_commit_delay=1
+2026-10-26T12:29:07.673Z,0.673462,46f481e0,6,Info [DFLog::Mimalloc] mi_option_use_numa_nodes=0
+2026-10-26T12:29:07.673Z,0.673507,46f481e0,6,Info [DFLog::Mimalloc] mi_option_disallow_os_alloc=0
+2026-10-26T12:29:07.673Z,0.673553,46f481e0,6,Info [DFLog::Mimalloc] mi_option_os_tag=100
+2026-10-26T12:29:07.673Z,0.673597,46f481e0,6,Info [DFLog::Mimalloc] mi_option_max_errors=32
+2026-10-26T12:29:07.673Z,0.673643,46f481e0,6,Info [DFLog::Mimalloc] mi_option_max_warnings=32
+2026-10-26T12:29:07.673Z,0.673691,46f481e0,6,Info [DFLog::Mimalloc] mi_option_deprecated_max_segment_reclaim=10
+2026-10-26T12:29:07.673Z,0.673737,46f481e0,6,Info [DFLog::Mimalloc] mi_option_destroy_on_exit=0
+2026-10-26T12:29:07.673Z,0.673782,46f481e0,6,Info [DFLog::Mimalloc] mi_option_arena_reserve=1048576
+2026-10-26T12:29:07.673Z,0.673837,46f481e0,6,Info [DFLog::Mimalloc] mi_option_arena_purge_mult=1
+2026-10-26T12:29:07.673Z,0.673880,46f481e0,6,Info [DFLog::Mimalloc] mi_option_deprecated_purge_extend_delay=1
+2026-10-26T12:29:07.673Z,0.673930,46f481e0,6,Info [DFLog::Mimalloc] mi_option_disallow_arena_alloc=0
+2026-10-26T12:29:07.673Z,0.673978,46f481e0,6,Info [DFLog::Mimalloc] mi_option_retry_on_oom=400
+2026-10-26T12:29:07.674Z,0.674022,46f481e0,6,Info [DFLog::Mimalloc] mi_option_visit_abandoned=0
+2026-10-26T12:29:07.674Z,0.674065,46f481e0,6,Info [DFLog::Mimalloc] mi_option_guarded_min=0
+2026-10-26T12:29:07.674Z,0.674109,46f481e0,6,Info [DFLog::Mimalloc] mi_option_guarded_max=1073741824
+2026-10-26T12:29:07.674Z,0.674152,46f481e0,6,Info [DFLog::Mimalloc] mi_option_guarded_precise=0
+2026-10-26T12:29:07.674Z,0.674290,46f481e0,6,Info [DFLog::Mimalloc] mi_option_guarded_sample_rate=0
+2026-10-26T12:29:07.674Z,0.674335,46f481e0,6,Info [DFLog::Mimalloc] mi_option_guarded_sample_seed=0
+2026-10-26T12:29:07.674Z,0.674381,46f481e0,6,Info [DFLog::Mimalloc] mi_option_generic_collect=10000
+2026-10-26T12:29:07.674Z,0.674427,46f481e0,6,Info [DFLog::Mimalloc] mi_option_page_reclaim_on_free=0
+2026-10-26T12:29:07.674Z,0.674473,46f481e0,6,Info [DFLog::Mimalloc] mi_option_page_full_retain=2
+2026-10-26T12:29:07.674Z,0.674520,46f481e0,6,Info [DFLog::Mimalloc] mi_option_page_max_candidates=4
+2026-10-26T12:29:07.674Z,0.674629,46f481e0,6,Info [DFLog::Mimalloc] mi_option_max_vabits=0
+2026-10-26T12:29:07.674Z,0.674678,46f481e0,6,Info [DFLog::Mimalloc] mi_option_pagemap_commit=0
+2026-10-26T12:29:07.674Z,0.674725,46f481e0,6,Info [DFLog::Mimalloc] mi_option_page_commit_on_demand=0
+2026-10-26T12:29:07.674Z,0.674771,46f481e0,6,Info [DFLog::Mimalloc] mi_option_page_max_reclaim=-1
+2026-10-26T12:29:07.674Z,0.674817,46f481e0,6,Info [DFLog::Mimalloc] mi_option_page_cross_thread_max_reclaim=32
+2026-10-26T12:29:07.674Z,0.674867,46f481e0,6,Critical [FLog::Output] Build system id: 2
+2026-10-26T12:29:07.680Z,0.680034,46f481e0,6,Info [FLog::AppMemUsageStatus] 923286370

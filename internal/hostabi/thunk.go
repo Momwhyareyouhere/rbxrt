@@ -258,6 +258,11 @@ func mkThunk(target uintptr) uintptr {
 	off += 3
 	copy(b[off:], []byte{0x4D, 0x89, 0xC8}) // MOVQ R9, R8
 	off += 3
+	// The seventh SysV integer argument is at 8(SP) on entry. Go's internal
+	// ABI has a seventh integer argument register (R9); forward it there for
+	// shims whose C signatures exceed six arguments.
+	copy(b[off:], []byte{0x4C, 0x8B, 0x4C, 0x24, 0x08}) // MOVQ 8(SP), R9
+	off += 5
 	copy(b[off:], movR11Prefix) // MOVQ target, R11
 	off += len(movR11Prefix)
 	put64(b[off:], target)

@@ -12,6 +12,7 @@ import (
 // guest memory and never trigger the garbage collector.
 
 //go:noinline
+//go:nosplit
 func goMemcpy(dst, src, n uintptr) uintptr {
 	if n == 0 {
 		return dst
@@ -29,6 +30,7 @@ func goMemcpy(dst, src, n uintptr) uintptr {
 }
 
 //go:noinline
+//go:nosplit
 func goMemmove(dst, src, n uintptr) uintptr {
 	if n == 0 || dst == src {
 		return dst

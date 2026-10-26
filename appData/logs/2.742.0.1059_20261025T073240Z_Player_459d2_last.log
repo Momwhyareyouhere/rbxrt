@@ -1,0 +1,3 @@
+[FLog::Output] All use of Roblox services must comply with Roblox's Terms of Use, Privacy Policy, Community Standards, and applicable laws. Processing of User personal information is limited to the purposes expressly permitted therein.
+2026-10-25T07:32:40.517Z,0.517778,4a3081e0,6 [FLog::Output] RobloxChannel has been set to production
+2026-10-25T07:32:40.517Z,0.517859,4a3081e0,6 [FLog::AndroidGLView] nativeInitClientSettings

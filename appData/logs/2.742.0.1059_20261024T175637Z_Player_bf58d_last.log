@@ -1,0 +1,9 @@
+[FLog::Output] All use of Roblox services must comply with Roblox's Terms of Use, Privacy Policy, Community Standards, and applicable laws. Processing of User personal information is limited to the purposes expressly permitted therein.
+2026-10-24T17:56:37.777Z,0.777540,41df41e0,6 [FLog::AndroidGLView] nativeInitClientSettings
+2026-10-24T17:56:37.777Z,0.777627,41df41e0,6 [FLog::Error] Error loading settings: [0: Invalid value.] settings size = 22
+2026-10-24T17:56:37.777Z,0.777656,41df41e0,6 [FLog::AndroidGLView] initClientSettingsAndroid: ParseFailure. Error = [0: Invalid value.].
+2026-10-24T17:56:37.777Z,0.777678,41df41e0,6 [FLog::AndroidGLView] nativePostClientSettingsLoadedInitialization3
+2026-10-24T17:56:37.777Z,0.777728,41df41e0,6 [FLog::ClientRunInfo] RobloxGitHash: 6526ec9ec5fd975701b94c22996097d852774f08
+2026-10-24T17:56:37.777Z,0.777753,41df41e0,6 [FLog::ClientRunInfo] The base url is 
+2026-10-24T17:56:37.777Z,0.777771,41df41e0,6 [FLog::ClientRunInfo] The channel is production
+2026-10-24T17:56:37.777Z,0.777915,41df41e0,6 [LOGCHANNELS + 1] RBXCRASH: FatalRuntimeError (Can't initialize the TaskScheduler before flags have been loaded)

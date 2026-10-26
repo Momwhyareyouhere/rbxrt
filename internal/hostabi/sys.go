@@ -65,6 +65,8 @@ func readFS28() uint64
 
 // readFSbase is implemented in abi_amd64.s and returns the current value of the
 // FS base register.
+//
+//go:nosplit
 func readFSbase() uintptr
 
 // writeFSbase is implemented in abi_amd64.s and sets the FS base register to addr.
@@ -373,7 +375,14 @@ func goAndroidLogBufWrite(bufID, prio, tag, msg uintptr) int {
 }
 
 func writeLog(tag, msg string) {
-	fmt.Fprintf(os.Stderr, "rbxrt: [%s] %s\n", tag, msg)
+	line := []byte("rbxrt: [" + tag + "] " + msg + "\n")
+	for len(line) != 0 {
+		n := rawSysNoEnter(1, 2, uintptr(unsafe.Pointer(&line[0])), uintptr(len(line)))
+		if int64(n) <= 0 {
+			break
+		}
+		line = line[int(n):]
+	}
 }
 
 // --- environment ---------------------------------------------------------
@@ -405,11 +414,8 @@ func goGetppid() uintptr { return uintptr(os.Getppid()) }
 
 //go:noinline
 func goGettid() uintptr {
-	var tid int
 	// SYS_GETTID, no arguments
-	r, _, _ := syscall.Syscall(syscall.SYS_GETTID, 0, 0, 0)
-	tid = int(r)
-	return uintptr(tid)
+	return rawSysNoEnter(syscall.SYS_GETTID, 0, 0, 0)
 }
 
 //go:noinline
@@ -428,15 +434,12 @@ func goGetpagesize() uintptr { return uintptr(os.Getpagesize()) }
 // into an effectively infinite one.
 //
 //go:noinline
+//go:nosplit
 func goSysconf(name uintptr) int {
 	switch int(name) {
 	case 0x06: // _SC_CLK_TCK
 		return 100
 	case 0x0b: // _SC_OPEN_MAX
-		var rl syscall.Rlimit
-		if syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rl) == nil {
-			return int(rl.Cur)
-		}
 		return 1024
 	case 0x1b: // _SC_STREAM_MAX
 		return 16
@@ -525,30 +528,18 @@ func isMonotonic(clockid int) bool {
 }
 
 //go:noinline
+//go:nosplit
 func goClockGettime(clockid, tp uintptr) int {
-	if debugClock {
-		clockGetCount++
-		if clockGetCount == 1000000 || clockGetCount == 3000000 {
-			rp, rbp := guestCapture()
-			fmt.Fprintf(os.Stderr, "rbxrt: clock_gettime caller=%#x (+%#x) n=%d rbp=%#x\n", rp, rp-guestBias, clockGetCount, rbp)
-			walkGuestFrames(40)
-		}
+	if tp == 0 {
+		return -14 // EFAULT
 	}
-	if tp != 0 {
-		var sec, nsec int64
-		if isMonotonic(int(clockid)) {
-			ns := time.Duration(hostMonotonicNowNanos(int(clockid)))
-			sec = int64(ns / time.Second)
-			nsec = int64(ns % time.Second)
-		} else {
-			now := time.Now()
-			sec = now.Unix()
-			nsec = int64(now.Nanosecond())
-		}
-		*(*int64)(unsafe.Pointer(tp)) = sec
-		*(*int64)(unsafe.Pointer(tp + 8)) = nsec
+	// Linux x86_64 SYS_clock_gettime. Stay entirely outside the Go runtime:
+	// this callback runs on a guest-provided stack.
+	r := rawSysNoEnter(228, clockid, tp, 0)
+	if int64(r) < 0 {
+		return -1
 	}
-	return 0
+	return int(r)
 }
 
 //go:noinline
@@ -564,34 +555,40 @@ func goNanosleep(req, rem uintptr) int {
 // --- memory mapping ------------------------------------------------------
 
 //go:noinline
+//go:nosplit
 func goMmap(addr, length, prot, flags, fd, off uintptr) uintptr {
-	p, err := syscall.Mmap(int(fd), int64(off), int(length), int(prot), int(flags))
-	if err != nil {
+	p := rawSysNoEnter6(9, addr, length, prot, flags, fd, off)
+	if int64(p) < 0 {
 		return ^uintptr(0) // MAP_FAILED
 	}
-	return uintptr(unsafe.Pointer(&p[0]))
+	return p
 }
 
 //go:noinline
+//go:nosplit
 func goMunmap(addr, length uintptr) int {
-	err := syscall.Munmap(unsafe.Slice((*byte)(unsafe.Pointer(addr)), int(length)))
-	if err != nil {
+	if r := rawSysNoEnter6(11, addr, length, 0, 0, 0, 0); int64(r) < 0 {
 		return -1
 	}
 	return 0
 }
 
 //go:noinline
+//go:nosplit
 func goMprotect(addr, length, prot uintptr) int {
-	if err := syscall.Mprotect(unsafe.Slice((*byte)(unsafe.Pointer(addr)), int(length)), int(prot)); err != nil {
+	if r := rawSysNoEnter6(10, addr, length, prot, 0, 0, 0); int64(r) < 0 {
 		return -1
 	}
 	return 0
 }
 
 //go:noinline
+//go:nosplit
 func goMadvise(addr, length, advice uintptr) int {
-	_ = syscall.Madvise(unsafe.Slice((*byte)(unsafe.Pointer(addr)), int(length)), int(advice))
+	r := rawSysNoEnter(28, addr, length, advice)
+	if int64(r) < 0 {
+		return -1
+	}
 	return 0
 }
 
@@ -599,16 +596,37 @@ func goMadvise(addr, length, advice uintptr) int {
 
 //go:noinline
 func goOpen(path, flags, mode uintptr) int {
-	fd, err := syscall.Open(cstr(path), int(flags), uint32(mode))
-	if err != nil {
+	fd := rawSysNoEnter(2, path, flags, mode)
+	debugAssetFileOpen("open", path, fd)
+	if int64(fd) < 0 {
 		return -1
 	}
-	return fd
+	return int(fd)
+}
+
+var debugAssetFiles = os.Getenv("RBXRT_DEBUG_ASSET_FILES") != ""
+
+func debugAssetFileOpen(op string, path, result uintptr) {
+	if !debugAssetFiles {
+		return
+	}
+	p := cstr(path)
+	if !strings.Contains(p, "UniversalApp") && !strings.Contains(p, "configs/") && !strings.Contains(p, "ExtraContent") {
+		return
+	}
+	b := []byte(fmt.Sprintf("rbxrt: %s %q -> %d\n", op, p, int64(result)))
+	for len(b) > 0 {
+		n := rawSysNoEnter(1, 2, uintptr(unsafe.Pointer(&b[0])), uintptr(len(b)))
+		if int64(n) <= 0 {
+			return
+		}
+		b = b[int(n):]
+	}
 }
 
 //go:noinline
 func goClose(fd uintptr) int {
-	if err := syscall.Close(int(fd)); err != nil {
+	if r := rawSysNoEnter(3, fd, 0, 0); int64(r) < 0 {
 		return -1
 	}
 	return 0
@@ -616,24 +634,24 @@ func goClose(fd uintptr) int {
 
 //go:noinline
 func goRead(fd, buf, n uintptr) int {
-	r, err := syscall.Read(int(fd), unsafe.Slice((*byte)(unsafe.Pointer(buf)), int(n)))
-	if err != nil {
+	r := rawSysNoEnter(0, fd, buf, n)
+	if int64(r) < 0 {
 		tracePipeIO("read", fd, buf, n, -1)
 		return -1
 	}
-	tracePipeIO("read", fd, buf, n, r)
-	return r
+	tracePipeIO("read", fd, buf, n, int(r))
+	return int(r)
 }
 
 //go:noinline
 func goWrite(fd, buf, n uintptr) int {
-	r, err := syscall.Write(int(fd), unsafe.Slice((*byte)(unsafe.Pointer(buf)), int(n)))
-	if err != nil {
+	r := rawSysNoEnter(1, fd, buf, n)
+	if int64(r) < 0 {
 		tracePipeIO("write", fd, buf, n, -1)
 		return -1
 	}
-	tracePipeIO("write", fd, buf, n, r)
-	return r
+	tracePipeIO("write", fd, buf, n, int(r))
+	return int(r)
 }
 
 // debugPipe traces short reads and writes (RBXRT_DEBUG_PIPE). The engine drives
@@ -657,34 +675,34 @@ func tracePipeIO(op string, fd, buf, n uintptr, r int) {
 
 //go:noinline
 func goPread(fd, buf, n, off uintptr) int {
-	r, err := syscall.Pread(int(fd), unsafe.Slice((*byte)(unsafe.Pointer(buf)), int(n)), int64(off))
-	if err != nil {
+	r := rawSysNoEnter6(17, fd, buf, n, off, 0, 0)
+	if int64(r) < 0 {
 		return -1
 	}
-	return r
+	return int(r)
 }
 
 //go:noinline
 func goPwrite(fd, buf, n, off uintptr) int {
-	r, err := syscall.Pwrite(int(fd), unsafe.Slice((*byte)(unsafe.Pointer(buf)), int(n)), int64(off))
-	if err != nil {
+	r := rawSysNoEnter6(18, fd, buf, n, off, 0, 0)
+	if int64(r) < 0 {
 		return -1
 	}
-	return r
+	return int(r)
 }
 
 //go:noinline
 func goLseek(fd, off, whence uintptr) int64 {
-	r, err := syscall.Seek(int(fd), int64(off), int(whence))
-	if err != nil {
+	r := rawSysNoEnter(8, fd, off, whence)
+	if int64(r) < 0 {
 		return -1
 	}
-	return r
+	return int64(r)
 }
 
 //go:noinline
 func goAccess(path, mode uintptr) int {
-	if err := syscall.Access(cstr(path), uint32(mode)); err != nil {
+	if r := rawSysNoEnter(21, path, mode, 0); int64(r) < 0 {
 		return -1
 	}
 	return 0
@@ -692,8 +710,8 @@ func goAccess(path, mode uintptr) int {
 
 //go:noinline
 func goFcntl(fd, cmd, arg uintptr) int {
-	r, _, errno := syscall.Syscall(syscall.SYS_FCNTL, fd, cmd, arg)
-	if errno != 0 {
+	r := rawSysNoEnter(72, fd, cmd, arg)
+	if int64(r) < 0 {
 		return -1
 	}
 	return int(r)
@@ -701,21 +719,16 @@ func goFcntl(fd, cmd, arg uintptr) int {
 
 //go:noinline
 func goGetcwd(buf, size uintptr) uintptr {
-	wd, err := os.Getwd()
-	if err != nil {
+	r := rawSysNoEnter(79, buf, size, 0)
+	if int64(r) < 0 {
 		return 0
 	}
-	if uintptr(len(wd))+1 > size {
-		return 0
-	}
-	copy(unsafe.Slice((*byte)(unsafe.Pointer(buf)), len(wd)), wd)
-	*(*byte)(unsafe.Pointer(buf + uintptr(len(wd)))) = 0
 	return buf
 }
 
 //go:noinline
 func goMkdir(path, mode uintptr) int {
-	if err := syscall.Mkdir(cstr(path), uint32(mode)); err != nil {
+	if r := rawSysNoEnter(83, path, mode, 0); int64(r) < 0 {
 		return -1
 	}
 	return 0
@@ -723,7 +736,7 @@ func goMkdir(path, mode uintptr) int {
 
 //go:noinline
 func goRmdir(path uintptr) int {
-	if err := syscall.Rmdir(cstr(path)); err != nil {
+	if r := rawSysNoEnter(84, path, 0, 0); int64(r) < 0 {
 		return -1
 	}
 	return 0
@@ -731,7 +744,7 @@ func goRmdir(path uintptr) int {
 
 //go:noinline
 func goUnlink(path uintptr) int {
-	if err := syscall.Unlink(cstr(path)); err != nil {
+	if r := rawSysNoEnter(87, path, 0, 0); int64(r) < 0 {
 		return -1
 	}
 	return 0
@@ -786,6 +799,7 @@ func goPthreadMutexattrDestroy(a uintptr) int { return 0 }
 func goPthreadMutexattrSettype(a, t uintptr) int { return 0 }
 
 //go:noinline
+//go:nosplit
 func goPthreadSelf() uintptr {
 	if mainThreadOverride != 0 {
 		return mainThreadOverride
@@ -805,7 +819,6 @@ func SetMainThreadID(id uintptr) {
 
 // GetG returns the current g pointer.
 func GetG() uintptr { return getg() }
-
 
 //go:noinline
 func goPthreadEqual(a, b uintptr) int {
@@ -847,21 +860,24 @@ func goPthreadKeyCreate(key, dtor uintptr) int {
 	}
 	*(*uint32)(unsafe.Pointer(key)) = id
 	if dtor != 0 {
-		tlsStore.mu.Lock()
+		tlsStore.dtorMu.Lock()
 		tlsStore.dtors[id] = dtor
-		tlsStore.mu.Unlock()
+		tlsStore.dtorMu.Unlock()
 	}
 	return 0
 }
 
 //go:noinline
 func goPthreadKeyDelete(key uintptr) int {
-	tlsStore.mu.Lock()
+	tlsStore.dtorMu.Lock()
 	delete(tlsStore.dtors, uint32(key))
-	for _, km := range tlsStore.m {
-		delete(km, uint32(key))
+	tlsStore.dtorMu.Unlock()
+	for i := range tlsStore.slots {
+		s := &tlsStore.slots[i]
+		if atomic.LoadUint32(&s.state) == 2 && s.key == uint32(key) {
+			atomic.StoreUintptr(&s.value, 0)
+		}
 	}
-	tlsStore.mu.Unlock()
 	return 0
 }
 
@@ -877,37 +893,69 @@ func goPthreadKeyDelete(key uintptr) int {
 // and each created thread get independent slots, which is what a thread cache
 // requires.
 type tlsTable struct {
-	mu sync.Mutex
-	m  map[uintptr]map[uint32]uintptr
+	dtorMu sync.Mutex
+	slots  [1 << 15]tlsSlot
 	// dtors records the destructor registered for each key, indexed by key.
 	dtors map[uint32]uintptr
 }
 
-var tlsStore = tlsTable{m: map[uintptr]map[uint32]uintptr{}, dtors: map[uint32]uintptr{}}
+type tlsSlot struct {
+	state uint32 // 0 empty, 1 being initialized, 2 published
+	key   uint32
+	g     uintptr
+	value uintptr
+}
+
+var tlsStore = tlsTable{dtors: map[uint32]uintptr{}}
 
 func tlsGet(g uintptr, key uint32) uintptr {
-	tlsStore.mu.Lock()
-	defer tlsStore.mu.Unlock()
-	if km := tlsStore.m[g]; km != nil {
-		return km[key]
+	return tlsGetLocked(g, key)
+}
+
+//go:nosplit
+func tlsGetLocked(g uintptr, key uint32) uintptr {
+	idx := int((g>>4 ^ uintptr(key)*0x9e3779b97f4a7c15) & uintptr(len(tlsStore.slots)-1))
+	for n := 0; n < len(tlsStore.slots); n++ {
+		s := &tlsStore.slots[(idx+n)&(len(tlsStore.slots)-1)]
+		state := atomic.LoadUint32(&s.state)
+		if state == 0 {
+			return 0
+		}
+		if state == 2 && atomic.LoadUintptr(&s.g) == g && s.key == key {
+			return atomic.LoadUintptr(&s.value)
+		}
 	}
 	return 0
 }
 
 func tlsSet(g uintptr, key uint32, val uintptr) {
-	tlsStore.mu.Lock()
-	defer tlsStore.mu.Unlock()
-	km := tlsStore.m[g]
-	if km == nil {
-		km = map[uint32]uintptr{}
-		tlsStore.m[g] = km
+	tlsSetLocked(g, key, val)
+}
+
+//go:nosplit
+func tlsSetLocked(g uintptr, key uint32, val uintptr) {
+	idx := int((g>>4 ^ uintptr(key)*0x9e3779b97f4a7c15) & uintptr(len(tlsStore.slots)-1))
+	for n := 0; n < len(tlsStore.slots); n++ {
+		s := &tlsStore.slots[(idx+n)&(len(tlsStore.slots)-1)]
+		state := atomic.LoadUint32(&s.state)
+		if state == 2 && atomic.LoadUintptr(&s.g) == g && s.key == key {
+			atomic.StoreUintptr(&s.value, val)
+			return
+		}
+		if state == 0 && atomic.CompareAndSwapUint32(&s.state, 0, 1) {
+			s.key = key
+			atomic.StoreUintptr(&s.g, g)
+			atomic.StoreUintptr(&s.value, val)
+			atomic.StoreUint32(&s.state, 2)
+			return
+		}
 	}
-	km[key] = val
 }
 
 var gsCallLog atomic.Int32
 var gsSetLog atomic.Int32
 var deepDumped atomic.Int32
+var tlsTraceBudget atomic.Int32
 
 // chainCheckpoint selects getspecific call counts at which the immediate guest
 // call chain is dumped, to observe the transition from normal start-up frames
@@ -949,14 +997,30 @@ var debugJNI = os.Getenv("RBXRT_DEBUG_JNI") != ""
 var debugWalk = os.Getenv("RBXRT_WALK") != ""
 
 //go:noinline
+//go:nosplit
 func goPthreadGetspecific(key uintptr) uintptr {
-	v := tlsGet(getg(), uint32(key))
+	g := getg()
+	v := tlsGetLocked(g, uint32(key))
 	if !debugTLS {
 		return v
 	}
+	return tracePthreadGetspecific(g, key, v)
+}
+
+// tracePthreadGetspecific is separate from the hot shim so its large diagnostic
+// frame is not entered while a guest callback is executing on the guest stack.
+// It is the only caller of the TLS diagnostics; the hot path above takes none
+// of it.
+//
+//go:noinline
+func tracePthreadGetspecific(g, key, v uintptr) uintptr {
 	n := int(gsCallLog.Add(1))
+	if takeTLSTraceSlot() {
+		pc, _ := guestCapture()
+		fmt.Fprintf(os.Stderr, "rbxrt: tls get n=%d key=%#x -> %#x guest-pc=%s\n",
+			n, key, v, guestAddr(pc))
+	}
 	if chainCheckpoint[n] {
-		g := getg()
 		gs := getGuestStack(g)
 		lo := *(*uintptr)(unsafe.Pointer(g))
 		hi := *(*uintptr)(unsafe.Pointer(g + 8))
@@ -1072,10 +1136,37 @@ func dumpCtx() {
 }
 
 //go:noinline
+//go:nosplit
 func goPthreadSetspecific(key, val uintptr) int {
-	gsSetLog.Add(1)
-	tlsSet(getg(), uint32(key), val)
+	n := int(gsSetLog.Add(1))
+	if debugTLS {
+		g := getg()
+		tlsSetLocked(g, uint32(key), val)
+		if takeTLSTraceSlot() {
+			pc, _ := guestCapture()
+			fmt.Fprintf(os.Stderr, "rbxrt: tls set n=%d key=%#x value=%#x guest-pc=%s\n",
+				n, key, val, guestAddr(pc))
+		}
+		return 0
+	}
+	tlsSetLocked(getg(), uint32(key), val)
 	return 0
+}
+
+// TraceTLSCalls enables a bounded trace of pthread-specific storage operations.
+// The launch driver calls it immediately before a boot stage so constructor
+// traffic does not consume the diagnostic budget.
+func TraceTLSCalls(n int) {
+	tlsTraceBudget.Store(int32(n))
+}
+
+func takeTLSTraceSlot() bool {
+	for n := tlsTraceBudget.Load(); n > 0; n = tlsTraceBudget.Load() {
+		if tlsTraceBudget.CompareAndSwap(n, n-1) {
+			return true
+		}
+	}
+	return false
 }
 
 var tlsKeyNext uint32
@@ -1162,15 +1253,25 @@ func goPthreadCreate(threadp, attr, start, arg uintptr) int {
 // that goroutine lives; afterwards the Go runtime reuses the struct, so any
 // state left behind would be silently inherited by an unrelated guest thread.
 func releaseThreadLocal(g uintptr) {
-	tlsStore.mu.Lock()
-	km := tlsStore.m[g]
-	dtors := tlsStore.dtors
-	delete(tlsStore.m, g)
-	tlsStore.mu.Unlock()
+	km := make(map[uint32]uintptr)
+	for i := range tlsStore.slots {
+		s := &tlsStore.slots[i]
+		if atomic.LoadUint32(&s.state) == 2 && atomic.LoadUintptr(&s.g) == g {
+			if v := atomic.SwapUintptr(&s.value, 0); v != 0 {
+				km[s.key] = v
+			}
+		}
+	}
+	tlsStore.dtorMu.Lock()
+	dtors := make(map[uint32]uintptr, len(tlsStore.dtors))
+	for key, dtor := range tlsStore.dtors {
+		dtors[key] = dtor
+	}
+	tlsStore.dtorMu.Unlock()
 
 	// Run registered TLS destructors, as pthread does when a thread exits, with
 	// a few passes in case a destructor sets another key.
-	for pass := 0; pass < 4 && km != nil; pass++ {
+	for pass := 0; pass < 4 && len(km) > 0; pass++ {
 		ran := false
 		for key, dtor := range dtors {
 			if v, ok := km[key]; ok && v != 0 {

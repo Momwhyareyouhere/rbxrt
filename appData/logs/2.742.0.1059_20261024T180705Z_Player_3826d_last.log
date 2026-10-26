@@ -1,0 +1,5 @@
+[FLog::Output] All use of Roblox services must comply with Roblox's Terms of Use, Privacy Policy, Community Standards, and applicable laws. Processing of User personal information is limited to the purposes expressly permitted therein.
+2026-10-24T18:07:05.401Z,0.401955,7ca621e0,6,Error [DFLog::LoadSettingsZstdDictionary] Platform assets path not set for dictionary loading.
+2026-10-24T18:07:05.402Z,0.402028,7ca621e0,6,Warning [FLog::Output] settingsUrl: https:///v2/settings-compressed/application/AndroidApp/3274c4fe58582a02c0acdd9dd5463043c248ff1045b054f59923a70665a8ca79.dcz
+2026-10-24T18:07:05.459Z,0.459524,7ca621e0,6 [FLog::Output] RobloxChannel has been set to production
+2026-10-24T18:07:05.459Z,0.459655,7ca621e0,6 [FLog::AndroidGLView] nativeInitClientSettings

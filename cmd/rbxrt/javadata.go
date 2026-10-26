@@ -5,8 +5,10 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"rbxrt/internal/apk"
 	"rbxrt/internal/hostabi"
 	"rbxrt/internal/loader"
 )
@@ -60,9 +62,88 @@ func rbxrtDataDir() string {
 // standing in for the app; a failure is reported rather than ignored, because a
 // missing directory would otherwise look like a mysterious crash much later.
 func ensureDataDir() error {
-	assets := filepath.Join(rbxrtDataDir(), "assets")
-	if err := os.MkdirAll(assets, 0o755); err != nil {
-		return fmt.Errorf("create data directory %s: %w", assets, err)
+	for _, name := range []string{"assets", "android", "StudioContent"} {
+		path := filepath.Join(rbxrtDataDir(), name)
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			return fmt.Errorf("create data directory %s: %w", path, err)
+		}
+	}
+	// The asset-path native callback canonicalizes the Android platform asset
+	// directory beneath the APK asset root during StartApp.
+	if err := os.MkdirAll(filepath.Join(rbxrtDataDir(), "assets", "android"), 0o755); err != nil {
+		return fmt.Errorf("create platform asset directory: %w", err)
+	}
+	if os.Getenv("RBXRT_SKIP_ASSET_STAGING") != "" {
+		return nil
+	}
+	// Roblox looks up ExtraContent through the filesystem (unlike ordinary
+	// packaged assets, which use AAssetManager). Mirror the APK subtree so these
+	// reads see the actual client resources rather than an empty placeholder.
+	apkPath := os.Getenv("RBXRT_APK")
+	if apkPath == "" {
+		apkPath = "roblox.apk"
+	}
+	archive, err := apk.OpenArchive(apkPath)
+	if err != nil {
+		return fmt.Errorf("open APK for ExtraContent: %w", err)
+	}
+	defer archive.Close()
+	const prefix = "assets/ExtraContent/"
+	for _, entry := range archive.Entries() {
+		if !strings.HasPrefix(entry, prefix) {
+			continue
+		}
+		rel := strings.TrimPrefix(entry, prefix)
+		if rel == "" || filepath.IsAbs(rel) || filepath.Clean(rel) != rel || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+			return fmt.Errorf("unsafe ExtraContent APK path %q", entry)
+		}
+		dst := filepath.Join(rbxrtDataDir(), "ExtraContent", rel)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return fmt.Errorf("create ExtraContent directory %s: %w", filepath.Dir(dst), err)
+		}
+		if err := archive.Extract(entry, dst); err != nil {
+			return fmt.Errorf("extract APK entry %s: %w", entry, err)
+		}
+	}
+	// Packaged Roblox assets are read relative to the asset folder supplied by
+	// Java. The native engine's filesystem fallback resolves rbxasset:// paths
+	// beneath <asset folder>/content, so mirror that APK subtree too (for example
+	// UniversalAppPatchConfig is required before StartApp can continue).
+	const contentPrefix = "assets/content/"
+	for _, entry := range archive.Entries() {
+		if !strings.HasPrefix(entry, contentPrefix) {
+			continue
+		}
+		rel := strings.TrimPrefix(entry, contentPrefix)
+		if rel == "" || filepath.IsAbs(rel) || filepath.Clean(rel) != rel || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+			return fmt.Errorf("unsafe content APK path %q", entry)
+		}
+		// Stage into the process asset root as well as the AAsset APK source;
+		// some native filesystem paths strip rbxasset:// without adding content/.
+		dst := filepath.Join(rbxrtDataDir(), "assets", "content", rel)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return fmt.Errorf("create content directory %s: %w", filepath.Dir(dst), err)
+		}
+		if err := archive.Extract(entry, dst); err != nil {
+			return fmt.Errorf("extract APK entry %s: %w", entry, err)
+		}
+	}
+	const androidPrefix = "assets/android/"
+	for _, entry := range archive.Entries() {
+		if !strings.HasPrefix(entry, androidPrefix) {
+			continue
+		}
+		rel := strings.TrimPrefix(entry, androidPrefix)
+		if rel == "" || filepath.IsAbs(rel) || filepath.Clean(rel) != rel || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+			return fmt.Errorf("unsafe Android asset APK path %q", entry)
+		}
+		dst := filepath.Join(rbxrtDataDir(), "assets", "android", rel)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return fmt.Errorf("create Android asset directory %s: %w", filepath.Dir(dst), err)
+		}
+		if err := archive.Extract(entry, dst); err != nil {
+			return fmt.Errorf("extract APK entry %s: %w", entry, err)
+		}
 	}
 	return nil
 }
@@ -136,7 +217,16 @@ func seedJavaValues() {
 	hostabi.SetFakeMethodResult(classInitArgs, "userAgent", str("rbxrt/0.0.0.0"))
 	hostabi.SetFakeMethodResult(classInitArgs, "isTablet", 0)
 	hostabi.SetFakeMethodResult(classInitArgs, "isVrDevice", 0)
-
+	hostabi.SetFakeMethodResult("java/util/Collections$EmptyList", "size", 0)
+	hostabi.SetFakeMethodResult("java/util/Collections$EmptyList", "isEmpty", 1)
+	// nativePostClientSettingsLoadedInitialization3 accepts the Java List
+	// interface, and JNI method IDs are keyed by their declaring interface, not
+	// the concrete Collections$EmptyList implementation.
+	hostabi.SetFakeMethodResult("java/util/List", "size", 0)
+	hostabi.SetFakeMethodResult("java/util/List", "isEmpty", 1)
+	hostabi.SetFakeMethodResult("java/util/List", "toArray", hostabi.NewFakeObject("[Ljava/lang/Object;"))
+	hostabi.SetFakeMethodResult("java/util/List", "iterator", hostabi.NewFakeObject("java/util/Collections$EmptyIterator"))
+	hostabi.SetFakeMethodResult("java/util/Iterator", "hasNext", 0)
 	// A class loader for the reflection the engine does (it asks the Java side
 	// for one, then looks classes up through it). The object is real to the
 	// engine's hands; loadClass() reports itself.
@@ -174,6 +264,14 @@ func seedJavaValues() {
 	hostabi.SetFakeMethodResult(classActivity, "bootstrapTheApp", 0)
 	hostabi.SetFakeMethodResult(classActivity, "getNativeHelper",
 		hostabi.NewFakeObject(classNativeHelper))
+	// During StartApp the engine reports the flag-provider handshake outcome to
+	// the activity. The launch has no persisted flag overrides, so report
+	// success: the failure path exits the app before any graphics start.
+	// StartApp's asynchronous flag callback carries a ByteBuffer; return a
+	// non-null buffer sentinel so native code follows the loaded/success path.
+	hostabi.SetFakeMethodResult(classNativeHelper, "gameActivity_onFlagsLoaded",
+		hostabi.NewFakeObject("java/nio/ByteBuffer"))
+	hostabi.SetFakeMethodResult(classNativeHelper, "gameActivity_onFlagsFailed", 0)
 
 	// getResources() and the display it describes: the engine sizes its output
 	// from these numbers. One logical pixel per pixel, matching the 1280x720

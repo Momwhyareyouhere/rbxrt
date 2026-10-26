@@ -1,0 +1,345 @@
+[FLog::Output] All use of Roblox services must comply with Roblox's Terms of Use, Privacy Policy, Community Standards, and applicable laws. Processing of User personal information is limited to the purposes expressly permitted therein.
+2026-10-24T18:32:47.472Z,1.472813,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:47.489Z,1.489916,11c881e0,6 [FLog::Output] RobloxChannel has been set to production
+2026-10-24T18:32:47.490Z,1.490011,11c881e0,6 [FLog::AndroidGLView] nativeInitClientSettings
+2026-10-24T18:32:47.494Z,1.494708,11c881e0,6,Info [DFLog::FlagCache] [FlagCache] writeFlagCache: Writing flag cache file to : cache/flag_cache.dat
+2026-10-24T18:32:47.494Z,1.494915,11c881e0,6,Info [DFLog::FlagCache] [FlagCache] writeFlagCache: Writing uncompressed flag cache data
+2026-10-24T18:32:47.494Z,1.494948,11c881e0,6,Info [DFLog::FlagCache] [FlagCache] writeFlagCache: Successfully wrote 31 bytes to file: cache/flag_cache.dat, time: 0.2412640000000188ms
+2026-10-24T18:32:47.495Z,1.495082,11c881e0,6 [FLog::AndroidGLView] nativePostClientSettingsLoadedInitialization3
+2026-10-24T18:32:47.495Z,1.495173,11c881e0,6 [FLog::ClientRunInfo] RobloxGitHash: 6526ec9ec5fd975701b94c22996097d852774f08
+2026-10-24T18:32:47.495Z,1.495208,11c881e0,6 [FLog::ClientRunInfo] The base url is https://www.roblox.com
+2026-10-24T18:32:47.495Z,1.495230,11c881e0,6 [FLog::ClientRunInfo] The channel is production
+2026-10-24T18:32:47.497Z,1.497052,11c881e0,6,Critical [DFLog::Mimalloc] Mimalloc integration detected, settings:
+2026-10-24T18:32:47.497Z,1.497096,11c881e0,6,Info [DFLog::Mimalloc] mi_option_show_errors=0
+2026-10-24T18:32:47.497Z,1.497118,11c881e0,6,Info [DFLog::Mimalloc] mi_option_show_stats=0
+2026-10-24T18:32:47.497Z,1.497138,11c881e0,6,Info [DFLog::Mimalloc] mi_option_verbose=0
+2026-10-24T18:32:47.497Z,1.497158,11c881e0,6,Info [DFLog::Mimalloc] mi_option_eager_commit=1
+2026-10-24T18:32:47.497Z,1.497181,11c881e0,6,Info [DFLog::Mimalloc] mi_option_arena_eager_commit=2
+2026-10-24T18:32:47.497Z,1.497201,11c881e0,6,Info [DFLog::Mimalloc] mi_option_purge_decommits=1
+2026-10-24T18:32:47.497Z,1.497222,11c881e0,6,Info [DFLog::Mimalloc] mi_option_allow_large_os_pages=0
+2026-10-24T18:32:47.497Z,1.497243,11c881e0,6,Info [DFLog::Mimalloc] mi_option_reserve_huge_os_pages=0
+2026-10-24T18:32:47.497Z,1.497264,11c881e0,6,Info [DFLog::Mimalloc] mi_option_reserve_huge_os_pages_at=-1
+2026-10-24T18:32:47.497Z,1.497285,11c881e0,6,Info [DFLog::Mimalloc] mi_option_reserve_os_memory=0
+2026-10-24T18:32:47.497Z,1.497306,11c881e0,6,Info [DFLog::Mimalloc] mi_option_deprecated_segment_cache=0
+2026-10-24T18:32:47.497Z,1.497328,11c881e0,6,Info [DFLog::Mimalloc] mi_option_deprecated_page_reset=0
+2026-10-24T18:32:47.497Z,1.497347,11c881e0,6,Info [DFLog::Mimalloc] mi_option_abandoned_page_purge=0
+2026-10-24T18:32:47.497Z,1.497368,11c881e0,6,Info [DFLog::Mimalloc] mi_option_purge_delay=1000
+2026-10-24T18:32:47.497Z,1.497387,11c881e0,6,Info [DFLog::Mimalloc] mi_option_deprecated_segment_reset=0
+2026-10-24T18:32:47.497Z,1.497409,11c881e0,6,Info [DFLog::Mimalloc] mi_option_eager_commit_delay=1
+2026-10-24T18:32:47.497Z,1.497430,11c881e0,6,Info [DFLog::Mimalloc] mi_option_use_numa_nodes=0
+2026-10-24T18:32:47.497Z,1.497451,11c881e0,6,Info [DFLog::Mimalloc] mi_option_disallow_os_alloc=0
+2026-10-24T18:32:47.497Z,1.497472,11c881e0,6,Info [DFLog::Mimalloc] mi_option_os_tag=100
+2026-10-24T18:32:47.497Z,1.497494,11c881e0,6,Info [DFLog::Mimalloc] mi_option_max_errors=32
+2026-10-24T18:32:47.497Z,1.497515,11c881e0,6,Info [DFLog::Mimalloc] mi_option_max_warnings=32
+2026-10-24T18:32:47.497Z,1.497537,11c881e0,6,Info [DFLog::Mimalloc] mi_option_deprecated_max_segment_reclaim=10
+2026-10-24T18:32:47.497Z,1.497558,11c881e0,6,Info [DFLog::Mimalloc] mi_option_destroy_on_exit=0
+2026-10-24T18:32:47.497Z,1.497580,11c881e0,6,Info [DFLog::Mimalloc] mi_option_arena_reserve=1048576
+2026-10-24T18:32:47.497Z,1.497601,11c881e0,6,Info [DFLog::Mimalloc] mi_option_arena_purge_mult=1
+2026-10-24T18:32:47.497Z,1.497621,11c881e0,6,Info [DFLog::Mimalloc] mi_option_deprecated_purge_extend_delay=1
+2026-10-24T18:32:47.497Z,1.497672,11c881e0,6,Info [DFLog::Mimalloc] mi_option_disallow_arena_alloc=0
+2026-10-24T18:32:47.497Z,1.497694,11c881e0,6,Info [DFLog::Mimalloc] mi_option_retry_on_oom=400
+2026-10-24T18:32:47.497Z,1.497716,11c881e0,6,Info [DFLog::Mimalloc] mi_option_visit_abandoned=0
+2026-10-24T18:32:47.497Z,1.497736,11c881e0,6,Info [DFLog::Mimalloc] mi_option_guarded_min=0
+2026-10-24T18:32:47.497Z,1.497761,11c881e0,6,Info [DFLog::Mimalloc] mi_option_guarded_max=1073741824
+2026-10-24T18:32:47.497Z,1.497782,11c881e0,6,Info [DFLog::Mimalloc] mi_option_guarded_precise=0
+2026-10-24T18:32:47.497Z,1.497803,11c881e0,6,Info [DFLog::Mimalloc] mi_option_guarded_sample_rate=0
+2026-10-24T18:32:47.497Z,1.497824,11c881e0,6,Info [DFLog::Mimalloc] mi_option_guarded_sample_seed=0
+2026-10-24T18:32:47.497Z,1.497847,11c881e0,6,Info [DFLog::Mimalloc] mi_option_generic_collect=10000
+2026-10-24T18:32:47.497Z,1.497872,11c881e0,6,Info [DFLog::Mimalloc] mi_option_page_reclaim_on_free=0
+2026-10-24T18:32:47.497Z,1.497892,11c881e0,6,Info [DFLog::Mimalloc] mi_option_page_full_retain=2
+2026-10-24T18:32:47.497Z,1.497912,11c881e0,6,Info [DFLog::Mimalloc] mi_option_page_max_candidates=4
+2026-10-24T18:32:47.497Z,1.497933,11c881e0,6,Info [DFLog::Mimalloc] mi_option_max_vabits=0
+2026-10-24T18:32:47.497Z,1.497954,11c881e0,6,Info [DFLog::Mimalloc] mi_option_pagemap_commit=0
+2026-10-24T18:32:47.497Z,1.497977,11c881e0,6,Info [DFLog::Mimalloc] mi_option_page_commit_on_demand=0
+2026-10-24T18:32:47.498Z,1.498000,11c881e0,6,Info [DFLog::Mimalloc] mi_option_page_max_reclaim=-1
+2026-10-24T18:32:47.498Z,1.498022,11c881e0,6,Info [DFLog::Mimalloc] mi_option_page_cross_thread_max_reclaim=32
+2026-10-24T18:32:47.498Z,1.498063,11c881e0,6,Critical [FLog::Output] Build system id: 2
+2026-10-24T18:32:47.498Z,1.498272,11c881e0,6,Info [FLog::AppMemUsageStatus] 923286370
+2026-10-24T18:32:47.521Z,1.521354,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:47.521Z,1.521871,11c881e0,6,Info [FLog::TombstoneCache] [FlagCache] Tombstone 1, expiry time 60, holdout false, channel 'production', written to file: cache/tombstone.dat
+2026-10-24T18:32:47.523Z,1.523895,11c881e0,6,Warning [FLog::LocalStorageHandler] Not available on the current platform.
+2026-10-24T18:32:47.524Z,1.524827,11c881e0,6,Warning [FLog::LocalStorageHandler] Not available on the current platform.
+2026-10-24T18:32:47.536Z,1.536368,11c881e0,6,Info [FLog::NativeDM] continueAfterFlagsLoaded_:
+2026-10-24T18:32:47.557Z,1.557112,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:47.673Z,1.673113,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:47.756Z,1.756522,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:47.856Z,1.856491,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:47.961Z,1.961326,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:48.073Z,2.073007,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:48.166Z,2.166679,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:48.274Z,2.274087,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:48.365Z,2.365707,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:48.456Z,2.456434,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:48.570Z,2.570371,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:48.661Z,2.661556,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:48.756Z,2.756487,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:48.865Z,2.865264,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:48.966Z,2.966648,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:49.056Z,3.056479,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:49.160Z,3.160578,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:49.277Z,3.277790,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:49.359Z,3.359096,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:49.480Z,3.480704,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:49.572Z,3.572791,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:49.663Z,3.663254,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:49.775Z,3.775338,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:49.856Z,3.856916,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:49.973Z,3.973057,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:50.083Z,4.083483,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:50.211Z,4.211228,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:50.292Z,4.292304,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:50.356Z,4.356557,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:50.481Z,4.481775,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:50.590Z,4.590451,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:50.670Z,4.670720,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:50.782Z,4.782978,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:50.884Z,4.884243,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:50.976Z,4.976081,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:51.073Z,5.073066,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:51.160Z,5.160869,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:51.292Z,5.292797,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:51.374Z,5.374023,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:51.486Z,5.486957,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:51.558Z,5.558393,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:51.673Z,5.673020,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:51.772Z,5.772983,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:51.897Z,5.897047,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:51.988Z,5.988987,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:52.076Z,6.076450,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:52.184Z,6.184165,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:52.291Z,6.291924,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:52.383Z,6.383162,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:52.490Z,6.490269,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:52.573Z,6.573290,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:52.658Z,6.658655,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:52.786Z,6.786350,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:52.872Z,6.872918,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:52.975Z,6.975210,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:53.077Z,7.077106,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:53.172Z,7.172927,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:53.260Z,7.260108,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:53.382Z,7.382076,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:53.473Z,7.473678,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:53.565Z,7.565221,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:53.672Z,7.672997,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:53.778Z,7.778778,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:53.872Z,7.872946,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:53.999Z,7.999720,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:54.071Z,8.071189,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:54.183Z,8.183161,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:54.272Z,8.272750,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:54.361Z,8.361197,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:54.493Z,8.493057,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:54.564Z,8.564154,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:54.691Z,8.691433,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:54.783Z,8.783258,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:54.881Z,8.881639,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:54.958Z,8.958815,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:55.072Z,9.072565,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:55.160Z,9.160878,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:55.273Z,9.273341,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:55.361Z,9.361009,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:55.482Z,9.482656,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:55.563Z,9.563886,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:55.675Z,9.675659,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:55.773Z,9.773375,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:55.873Z,9.873878,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:55.965Z,9.965635,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:56.057Z,10.057899,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:56.164Z,10.164619,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:56.283Z,10.283325,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:56.372Z,10.372809,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:56.456Z,10.456617,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:56.578Z,10.578594,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:56.672Z,10.672733,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:56.773Z,10.773225,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:56.859Z,10.859679,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:56.981Z,10.981697,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:57.083Z,11.083732,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:57.185Z,11.185963,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:57.257Z,11.257404,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:57.359Z,11.359422,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:57.472Z,11.472917,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:57.586Z,11.586543,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:57.667Z,11.667855,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:57.772Z,11.772821,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:57.877Z,11.877835,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:57.975Z,11.975707,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:58.072Z,12.072234,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:58.159Z,12.159863,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:58.272Z,12.272750,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:58.368Z,12.368982,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:58.482Z,12.482768,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:58.559Z,12.559226,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:58.687Z,12.687240,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:58.760Z,12.760837,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:58.899Z,12.899018,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:58.972Z,12.972550,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:59.092Z,13.092877,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:59.172Z,13.172830,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:59.276Z,13.276304,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:59.372Z,13.372736,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:59.460Z,13.460126,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:59.582Z,13.582095,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:59.672Z,13.672791,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:59.765Z,13.765918,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:59.888Z,13.888044,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:32:59.974Z,13.974760,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:00.065Z,14.065049,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:00.171Z,14.171977,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:00.272Z,14.272785,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:00.372Z,14.372742,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:00.476Z,14.476470,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:00.558Z,14.558660,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:00.687Z,14.687713,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:00.779Z,14.779238,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:00.872Z,14.872654,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:00.978Z,14.978765,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:01.080Z,15.080385,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:01.192Z,15.192113,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:01.273Z,15.273327,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:01.361Z,15.361090,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:01.482Z,15.482779,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:01.590Z,15.590774,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:01.672Z,15.672582,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:01.767Z,15.767789,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:01.882Z,15.882556,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:01.990Z,15.990414,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:02.081Z,16.081270,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:02.183Z,16.183081,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:02.275Z,16.275885,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:02.372Z,16.372610,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:02.472Z,16.472622,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:02.560Z,16.560633,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:02.672Z,16.672705,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:02.759Z,16.759714,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:02.872Z,16.872644,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:02.972Z,16.972414,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:03.072Z,17.072699,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:03.172Z,17.172585,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:03.279Z,17.279600,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:03.361Z,17.361832,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:03.472Z,17.472591,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:03.585Z,17.585457,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:03.666Z,17.666857,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:03.779Z,17.779808,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:03.872Z,17.872713,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:03.962Z,17.962587,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:04.081Z,18.081699,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:04.171Z,18.171541,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:04.263Z,18.263542,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:04.372Z,18.372242,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:04.457Z,18.457853,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:04.579Z,18.579794,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:04.687Z,18.687378,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:04.768Z,18.768681,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:04.889Z,18.889662,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:04.970Z,18.970459,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:05.085Z,19.085487,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:05.172Z,19.172642,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:05.280Z,19.280470,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:05.361Z,19.361734,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:05.484Z,19.484837,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:05.573Z,19.573877,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:05.672Z,19.672579,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:05.791Z,19.791952,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:05.880Z,19.880896,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:05.972Z,19.972729,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:06.063Z,20.063778,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:06.186Z,20.186136,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:06.257Z,20.257650,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:06.369Z,20.369568,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:06.472Z,20.472572,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:06.576Z,20.576904,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:06.685Z,20.685963,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:06.767Z,20.767405,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:06.859Z,20.859081,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:06.986Z,20.986946,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:07.069Z,21.069748,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:07.181Z,21.181181,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:07.258Z,21.258759,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:07.365Z,21.365238,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:07.456Z,21.456932,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:07.585Z,21.585121,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:07.672Z,21.672453,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:07.776Z,21.776346,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:07.865Z,21.865292,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:07.956Z,21.956955,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:08.089Z,22.089510,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:08.191Z,22.191978,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:08.280Z,22.280174,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:08.372Z,22.372410,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:08.480Z,22.480690,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:08.561Z,22.561819,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:08.663Z,22.663551,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:08.791Z,22.791208,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:08.883Z,22.883638,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:08.973Z,22.973694,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:09.087Z,23.087242,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:09.188Z,23.188803,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:09.276Z,23.276575,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:09.374Z,23.374418,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:09.472Z,23.472363,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:09.557Z,23.557581,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:09.680Z,23.680397,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:09.772Z,23.772335,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:09.863Z,23.863428,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:09.972Z,23.972349,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:10.081Z,24.081926,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:10.172Z,24.172421,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:10.276Z,24.276012,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:10.377Z,24.377703,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:10.472Z,24.472403,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:10.572Z,24.572344,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:10.672Z,24.672401,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:10.772Z,24.772320,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:10.882Z,24.882555,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:10.972Z,24.972345,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:11.072Z,25.072275,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:11.172Z,25.172359,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:11.272Z,25.272398,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:11.383Z,25.383829,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:11.466Z,25.466402,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:11.577Z,25.577370,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:11.678Z,25.678968,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:11.760Z,25.760248,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:11.884Z,25.884748,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:11.961Z,25.961109,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:12.062Z,26.062925,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:12.187Z,26.187309,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:12.258Z,26.258495,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:12.380Z,26.380547,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:12.472Z,26.472187,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:12.563Z,26.563854,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:12.672Z,26.672297,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:12.778Z,26.778301,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:12.858Z,26.858768,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:12.972Z,26.972090,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:13.082Z,27.082598,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:13.163Z,27.163923,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:13.287Z,27.287043,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:13.372Z,27.372231,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:13.478Z,27.478235,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:13.579Z,27.579952,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:13.681Z,27.681389,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:13.762Z,27.762705,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:13.897Z,27.897778,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:13.975Z,27.975090,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:14.062Z,28.062494,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:14.180Z,28.180984,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:14.272Z,28.272608,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:14.363Z,28.363966,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:14.472Z,28.472311,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:14.557Z,28.557467,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:14.676Z,28.676645,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:14.759Z,28.759661,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:14.872Z,28.872137,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:14.973Z,28.973154,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:15.090Z,29.090820,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:15.157Z,29.157394,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:15.279Z,29.279484,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:15.360Z,29.360819,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:15.462Z,29.462618,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:15.572Z,29.572104,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:15.663Z,29.663191,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared
+2026-10-24T18:33:15.780Z,29.780632,11c881e0,6,Error [FLog::Output] Failed to scan size, resident, and shared

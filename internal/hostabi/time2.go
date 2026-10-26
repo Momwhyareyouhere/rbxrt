@@ -32,6 +32,7 @@ func zoneString(name string) uintptr {
 	return p
 }
 
+//go:nosplit
 func writeTM(dst uintptr, t time.Time, local bool) {
 	_, off := t.Zone()
 	zone := t.Location().String()
@@ -50,6 +51,7 @@ func writeTM(dst uintptr, t time.Time, local bool) {
 }
 
 //go:noinline
+//go:nosplit
 func goGmtimeR(tp, result uintptr) uintptr {
 	if tp == 0 || result == 0 {
 		return 0

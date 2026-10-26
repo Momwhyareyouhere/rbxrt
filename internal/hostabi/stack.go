@@ -43,9 +43,10 @@ const (
 	// whole time guest code runs, so a thunk finds the slot from g alone; see
 	// mkThunk. Per-goroutine storage is what lets a fatal handler name the real
 	// caller while other guest threads are running.
-	guestCaptureRetPC = 16 // stored at base - 16
-	guestCaptureRBP   = 8  // stored at base - 8
-	guestCaptureRSP   = 24 // stored at base - 24
+	guestCaptureRetPC  = 16 // stored at base - 16
+	guestCaptureRBP    = 8  // stored at base - 8
+	guestCaptureRSP    = 24 // stored at base - 24
+	guestCaptureTLSKey = ^uint32(0)
 )
 
 // guestStack describes one goroutine's guest stack. The field order and offsets
@@ -144,6 +145,25 @@ type GuestThreadState struct { //nolint:revive // exported for cmd/rbxrt
 	StackTop uintptr
 }
 
+// GuestFrameChain walks a sampled guest frame pointer, stopping at the guest
+// stack bounds or the first non-monotonic link. It is intended for watchdogs;
+// frame-pointer omission can make the resulting chain incomplete.
+func GuestFrameChain(rbp, stackTop uintptr, max int) []uintptr {
+	var out []uintptr
+	for i := 0; i < max && rbp != 0; i++ {
+		if rbp < stackTop-guestStackSize || rbp > stackTop-16 || rbp&7 != 0 {
+			break
+		}
+		next := *(*uintptr)(unsafe.Pointer(rbp))
+		out = append(out, *(*uintptr)(unsafe.Pointer(rbp + 8)))
+		if next <= rbp || next > stackTop-16 {
+			break
+		}
+		rbp = next
+	}
+	return out
+}
+
 // GuestImageOffset maps a guest address in the primary image to an image
 // offset, so a sampled PC can be read against the loaded file.
 func GuestImageOffset(pc uintptr) uintptr {
@@ -185,16 +205,17 @@ func GuestThreadsSnapshot() []GuestThreadState {
 // bitset is passed on the stack rather than in a register) can then read the
 // argument at SP+8, just above the return address. The bounds check keeps a
 // stale slot from being dereferenced when the caller was not a thunk.
+//
+//go:nosplit
 func guestCapturedRSP() uintptr {
 	g := getg()
-	gsMu.Lock()
-	gs := gsMap[g]
-	gsMu.Unlock()
-	if gs == nil || gs.base == 0 {
+	base := *(*uintptr)(unsafe.Pointer(g))
+	top := *(*uintptr)(unsafe.Pointer(g + 8))
+	if base == 0 || top <= base {
 		return 0
 	}
-	sp := *(*uintptr)(unsafe.Pointer(gs.base - guestCaptureRSP))
-	if sp < gs.base || sp+8 > gs.top {
+	sp := *(*uintptr)(unsafe.Pointer(base - guestCaptureRSP))
+	if sp < base || sp+8 > top {
 		return 0
 	}
 	return sp

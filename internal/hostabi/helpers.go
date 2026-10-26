@@ -152,6 +152,7 @@ func envLookupString(name string) (string, bool) {
 	return v, ok
 }
 
+//go:nosplit
 func getg() uintptr {
 	return *(*uintptr)(unsafe.Pointer(readFSbase() - 8))
 }

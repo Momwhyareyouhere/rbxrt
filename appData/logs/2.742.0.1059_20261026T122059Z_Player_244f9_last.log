@@ -1,0 +1,10 @@
+[FLog::Output] All use of Roblox services must comply with Roblox's Terms of Use, Privacy Policy, Community Standards, and applicable laws. Processing of User personal information is limited to the purposes expressly permitted therein.
+2026-10-26T12:20:59.639Z,0.639144,235121e0,6 [FLog::Output] RobloxChannel has been set to production
+2026-10-26T12:20:59.639Z,0.639242,235121e0,6 [FLog::AndroidGLView] nativeInitClientSettings
+2026-10-26T12:20:59.644Z,0.644495,235121e0,6,Info [DFLog::FlagCache] [FlagCache] writeFlagCache: Writing flag cache file to : cache/flag_cache.dat
+2026-10-26T12:20:59.644Z,0.644819,235121e0,6,Info [DFLog::FlagCache] [FlagCache] writeFlagCache: Writing uncompressed flag cache data
+2026-10-26T12:20:59.644Z,0.644871,235121e0,6,Info [DFLog::FlagCache] [FlagCache] writeFlagCache: Successfully wrote 31 bytes to file: cache/flag_cache.dat, time: 0.3823509999999475ms
+2026-10-26T12:20:59.645Z,0.645492,235121e0,6,Info [FLog::TombstoneCache] [FlagCache] Tombstone 0, expiry -1, holdout false, channel '' (production), read from file: cache/tombstone.dat
+2026-10-26T12:20:59.660Z,0.660536,235121e0,6,Info [FLog::TombstoneCache] [FlagCache] Tombstone 1, expiry time 60, holdout false, channel 'production', written to file: cache/tombstone.dat
+2026-10-26T12:21:06.152Z,7.152298,235121e0,6,Error [FLog::Error] fetch flag exception: HttpError: InvalidUrl
+2026-10-26T12:21:06.152Z,7.152414,235121e0,6,Info [FLog::NativeDM] ... getFlags: success = false.

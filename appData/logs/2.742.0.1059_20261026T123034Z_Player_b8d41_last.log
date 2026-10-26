@@ -1,0 +1,14 @@
+[FLog::Output] All use of Roblox services must comply with Roblox's Terms of Use, Privacy Policy, Community Standards, and applicable laws. Processing of User personal information is limited to the purposes expressly permitted therein.
+2026-10-26T12:30:34.522Z,0.522509,241c61e0,6,Info [FLog::TombstoneCache] [FlagCache] Tombstone 1, expiry 60, holdout false, channel 'production', read from file: cache/tombstone.dat
+2026-10-26T12:30:34.522Z,0.522578,241c61e0,6,Info [DFLog::FlagCache] [FlagCache] Channel mismatch precheck passed: channel 'production'
+2026-10-26T12:30:34.522Z,0.522606,241c61e0,6,Info [DFLog::FlagCache] [FlagCache] Holdout precheck passed
+2026-10-26T12:30:34.522Z,0.522622,241c61e0,6,Info [DFLog::FlagCache] [FlagCache] Tombstone default value precheck passed: startup tombstone is 1
+2026-10-26T12:30:34.522Z,0.522999,241c61e0,6,Info [DFLog::FlagCache] [FlagCache] Read and burned flag cache file in 0ms
+2026-10-26T12:30:34.523Z,0.523067,241c61e0,6,Info [FLog::TombstoneCache] [FlagCache] Tombstone 0, expiry time -1, holdout false, channel '' (production), written to file: cache/tombstone.dat
+2026-10-26T12:30:34.523Z,0.523172,241c61e0,6,Error [DFLog::FlagCache] [FlagCache] Security failure.
+2026-10-26T12:30:34.526Z,0.526494,241c61e0,6,Info [FLog::TombstoneCache] [FlagCache] Tombstone check passed: 1
+2026-10-26T12:30:34.526Z,0.526673,241c61e0,6,Info [DFLog::FlagCache] [FlagCache] Successfully parsed and verified cached settings
+2026-10-26T12:30:34.526Z,0.526745,241c61e0,6,Info [FLog::NativeDM] ... getFlags: loaded from flag cache, size = 26. Skipping blocking CDN fetch.
+2026-10-26T12:30:34.526Z,0.526765,241c61e0,6 [FLog::ClientRunInfo] RobloxGitHash: 6526ec9ec5fd975701b94c22996097d852774f08
+2026-10-26T12:30:34.526Z,0.526782,241c61e0,6 [FLog::ClientRunInfo] The base url is 
+2026-10-26T12:30:34.526Z,0.526795,241c61e0,6 [FLog::ClientRunInfo] The channel is production

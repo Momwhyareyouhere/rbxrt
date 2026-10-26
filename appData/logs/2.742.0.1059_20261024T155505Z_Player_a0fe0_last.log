@@ -1,0 +1,8 @@
+[FLog::Output] All use of Roblox services must comply with Roblox's Terms of Use, Privacy Policy, Community Standards, and applicable laws. Processing of User personal information is limited to the purposes expressly permitted therein.
+2026-10-24T15:55:05.315Z,0.315893,83dcc1e0,6,Error [DFLog::LoadSettingsZstdDictionary] Platform assets path not set for dictionary loading.
+2026-10-24T15:55:05.315Z,0.315952,83dcc1e0,6,Warning [FLog::Output] settingsUrl: https:///v2/settings-compressed/application/AndroidApp/3274c4fe58582a02c0acdd9dd5463043c248ff1045b054f59923a70665a8ca79.dcz
+2026-10-24T15:55:05.365Z,0.365217,83dcc1e0,6,Info [FLog::JNIAppBridge] nativeAppBridgeV2Init:
+2026-10-24T15:55:05.365Z,0.365771,83dcc1e0,6 [FLog::SingleSurfaceApp] initializeWithAppStarter
+2026-10-24T15:55:05.365Z,0.365800,83dcc1e0,6 [FLog::SingleSurfaceApp] initializeSingleton
+2026-10-24T15:55:05.366Z,0.366030,83dcc1e0,6 [FLog::Output] setAssetFolder /tmp/opencode/rbxrt-data/assets
+2026-10-24T15:55:05.366Z,0.366326,83dcc1e0,6 [LOGCHANNELS + 1] RBXCRASH: UnhandledException (N5boost10filesystem16filesystem_errorE boost::filesystem::status: errno 0: "/tmp/opencode/rbxrt-data/android")

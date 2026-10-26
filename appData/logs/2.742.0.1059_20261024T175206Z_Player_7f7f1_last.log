@@ -1,0 +1,7 @@
+[FLog::Output] All use of Roblox services must comply with Roblox's Terms of Use, Privacy Policy, Community Standards, and applicable laws. Processing of User personal information is limited to the purposes expressly permitted therein.
+2026-10-24T17:52:07.927Z,1.927974,e28c41e0,6,Info [FLog::JNIAppBridge] nativeAppBridgeV2Init:
+2026-10-24T17:52:07.931Z,1.931260,e28c41e0,6 [FLog::SingleSurfaceApp] initializeWithAppStarter
+2026-10-24T17:52:07.931Z,1.931473,e28c41e0,6 [FLog::SingleSurfaceApp] initializeSingleton
+2026-10-24T17:52:07.956Z,1.956680,e28c41e0,6 [FLog::Output] setAssetFolder /tmp/opencode/rbxrt-data/assets
+2026-10-24T17:52:07.957Z,1.957374,e28c41e0,6 [FLog::Output] setExtraAssetFolder /tmp/opencode/rbxrt-data/ExtraContent
+2026-10-24T17:52:07.968Z,1.968344,e28c41e0,6 [LOGCHANNELS + 1] RBXCRASH: UnhandledException (N5boost10filesystem16filesystem_errorE boost::filesystem::status: errno 0: "/tmp/opencode/rbxrt-data/StudioContent/")

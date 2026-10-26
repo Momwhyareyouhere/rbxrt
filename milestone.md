@@ -11,18 +11,21 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not reached
 - [x] 4. `initializeNativeCode` returns a usable native handle
 - [x] 5. Java boot data seeded before `JNI_OnLoad` (activity, resources, display metrics, InitParams, StartAppParams)
 - [x] 6. `nativeGameGlobalInit()` succeeds
-- [x] 7. `nativeAppBridgeV2InitWithParams(InitParams)` returns normally
-- [~] 8. `nativeAppBridgeV2StartAppWithParams(StartAppParams)` reaches the graphics path
-      (currently SIGSEGVs: app-bridge components object at `+0x440` is null)
+- [x] 7. `nativeAppBridgeV2InitWithParams(InitParams)` completes
+- [ ] 8. `nativeAppBridgeV2StartAppWithParams(StartAppParams)` reaches the graphics path
 - [ ] 9. EGL initialized on host Mesa: `eglInitialize` / `eglCreateContext` / `eglMakeCurrent` counted > 0
 - [ ] 10. Render backend comes up (Mesa zink → Vulkan) and creates a swapchain/surface
 - [ ] 11. Engine loads `rbxasset://places/Mobile.rbxl` (place data accepted)
 - [ ] 12. First `eglSwapBuffers` with real content
 - [ ] 13. Roblox window launches and shows a rendered frame
 
-Current focus: milestone 8 — find why the components/settings function at
-`IMG+0x245efca` (called from `IMG+0x245e313` during `InitWithParams`) never reaches
-its later stages, leaving `*(appObject+0x440)` null and crashing the callee at
-`IMG+0x2715185`.
+Current focus: milestone 8 — drive `nativeAppBridgeV2StartAppWithParams` into the
+graphics path. Flags initialize, the client-settings sequence completes, and
+`nativeAppBridgeV2InitWithParams` returns normally. Required filesystem paths
+(`assets/content`, `assets/android`, `ExtraContent`, and `StudioContent`) are
+prepared from the APK or created in the runtime data directory. The StartApp
+path is still blocked: some runs trap in a telemetry assertion; others time out
+inside initialization. EGL entry points have not been confirmed. The UniversalApp
+patch configuration and guest-thread/TLS behavior remain unresolved.
 
-Last updated: 2026-10-23
+Last updated: 2026-10-24
