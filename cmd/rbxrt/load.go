@@ -505,8 +505,8 @@ func javaBootKick(im *loader.Image) (pump func() int) {
 	callArgs("com/roblox/engine/jni/NativeGLInterface", "nativeInitClientSettings",
 		env, cls, hostabi.NewJavaString(`{"applicationSettings":{}}`),
 		hostabi.NewJavaString(""), hostabi.NewJavaString("production"))
-	// The post-settings callback remains Java/ART-only; StartApp performs the
-	// native continuation directly on this host.
+	// The post-settings callback requires Android ART ApplicationExitInfo
+	// objects. The settings payload above is sufficient for this host path.
 	callOther("com/roblox/client/startup/MainGameActivity", "nativeSetAssetPath",
 		hostabi.NewJavaString(filepath.Join(rbxrtDataDir(), "assets", "content")))
 	call("nativeAppBridgeV2InitWithParams", hostabi.NewFakeObject(classInitArgs))
@@ -516,7 +516,38 @@ func javaBootKick(im *loader.Image) (pump func() int) {
 	if err := hostabi.PatchGuest(im.Bias+0x6d42f0c, []byte{0x31, 0xc0, 0xc3}); err != nil {
 		fmt.Fprintf(os.Stderr, "rbxrt: telemetry sink skip: %v\n", err)
 	}
+	if err := hostabi.PatchGuest(im.Bias+0x26aa865, []byte{0x90, 0x90, 0x90, 0x90, 0x90}); err != nil {
+		fmt.Fprintf(os.Stderr, "rbxrt: key-event probe skip: %v\n", err)
+	}
 	call("nativeAppBridgeV2StartAppWithParams", hostabi.NewFakeObject(classStartApp))
+	startGame := os.Getenv("RBXRT_START_GAME") != ""
+	if !startGame {
+		// Java sends a second surface/platform update after the app bridge starts;
+		// this is the notification that normally drives the app render view.
+		callArgs("com/roblox/engine/jni/NativeGLInterface", "nativeAppBridgeV2UpdateSurfaceAppWithPlatformParams",
+			env, cls, javaSurface, hostabi.NewFakeObject(classPlatform))
+		if err := hostabi.PatchGuest(im.Bias+0x24f4fed, []byte{0x90, 0x90, 0x90, 0x90, 0x90}); err != nil {
+			fmt.Fprintf(os.Stderr, "rbxrt: Lua-start key probe skip: %v\n", err)
+		}
+		call("nativeAppBridgeStartLuaAppDM", 0)
+		call("nativeAppBridgeV2SendAppEventOnAppReady", 0)
+		call("nativeScheduleOnFirstFrame", 0)
+	}
+	if startGame {
+		// StartGame has the same synthetic key-event probe as StartApp, but at
+		// its own call site. There is no Android input queue in the host.
+		if err := hostabi.PatchGuest(im.Bias+0x2e50483, []byte{0x90, 0x90, 0x90, 0x90, 0x90}); err != nil {
+			fmt.Fprintf(os.Stderr, "rbxrt: StartGame key-event probe skip: %v\n", err)
+		}
+		call("nativeAppBridgeV2StartGameWithParam",
+			hostabi.NewFakeObject("com/roblox/engine/jni/autovalue/StartGameParams"))
+		callArgs("com/roblox/engine/jni/NativeGLInterface", "nativeAppBridgeV2UpdateSurfaceGameWithPlatformParams",
+			env, cls, javaSurface, hostabi.NewFakeObject(classPlatform))
+		call("nativeAppBridgeV2SendAppEventOnGameLoaded", 0)
+		callArgs("com/roblox/engine/jni/NativeGLInterface", "nativeAppBridgeV2ResumeGameWithPlatformParams",
+			env, cls, hostabi.NewFakeObject(classPlatform))
+		call("nativeOnExperienceSessionResume", 0)
+	}
 
 	pumpName := prefix + "nativeCallMessagesFromMainThread"
 	fn, ok := im.Exports[pumpName]

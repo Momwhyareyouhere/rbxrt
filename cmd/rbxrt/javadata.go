@@ -17,14 +17,15 @@ import (
 // declares them. They are spelled the way the engine spells them in its
 // FindClass/GetMethodID calls; a name that appears twice here is a typo.
 const (
-	classGLJava   = "com/roblox/engine/jni/NativeGLJavaInterface"
-	classDevice   = "com/roblox/engine/jni/model/DeviceStaticParams"
-	classPlatform = "com/roblox/engine/jni/model/PlatformParams"
-	classStartApp = "com/roblox/engine/jni/autovalue/StartAppParams"
-	classInitArgs = "com/roblox/engine/jni/autovalue/InitParams"
-	classUser     = "com/roblox/engine/jni/user/NativeUserJavaInterface"
-	classLocale   = "com/roblox/engine/jni/locale/NativeLocaleJavaInterface"
-	classLogging  = "com/roblox/universalapp/logging/LoggingProtocol"
+	classGLJava    = "com/roblox/engine/jni/NativeGLJavaInterface"
+	classDevice    = "com/roblox/engine/jni/model/DeviceStaticParams"
+	classPlatform  = "com/roblox/engine/jni/model/PlatformParams"
+	classStartApp  = "com/roblox/engine/jni/autovalue/StartAppParams"
+	classStartGame = "com/roblox/engine/jni/autovalue/StartGameParams"
+	classInitArgs  = "com/roblox/engine/jni/autovalue/InitParams"
+	classUser      = "com/roblox/engine/jni/user/NativeUserJavaInterface"
+	classLocale    = "com/roblox/engine/jni/locale/NativeLocaleJavaInterface"
+	classLogging   = "com/roblox/universalapp/logging/LoggingProtocol"
 
 	// The activity the launch stands in for, and the framework objects it is
 	// asked for. MainGameActivity is the APK class that declares
@@ -208,6 +209,28 @@ func seedJavaValues() {
 	hostabi.SetFakeMethodResult(classStartApp, "surface", javaSurface)
 	hostabi.SetFakeMethodResult(classStartApp, "platformParams", platform)
 	hostabi.SetFakeMethodResult(classStartApp, "vrContext", 0)
+
+	// StartGameParams is the follow-up Java value used by the activity after
+	// StartApp. Keep its optional join metadata empty, but provide the same
+	// surface and platform objects so the native path can create the render
+	// view without an ART array or Activity instance.
+	hostabi.SetFakeMethodResult(classStartGame, "surface", javaSurface)
+	hostabi.SetFakeMethodResult(classStartGame, "platformParams", platform)
+	hostabi.SetFakeMethodResult(classStartGame, "vrContext", 0)
+	for _, method := range []string{
+		"gameId", "accessCode", "linkCode", "username", "referralPage",
+		"launchData", "joinAttemptId", "joinAttemptOrigin", "reservedServerAccessCode",
+		"callId", "isoContext", "gameJoinContext", "eventId",
+	} {
+		hostabi.SetFakeMethodResult(classStartGame, method, str(""))
+	}
+	for _, method := range []string{"userId", "conversationId", "referredByPlayerId", "placeId", "joinRequestType", "isUnder13"} {
+		hostabi.SetFakeMethodResult(classStartGame, method, 0)
+	}
+	hostabi.SetFakeMethodResult(classStartGame, "gameId", str("118593852151835"))
+	hostabi.SetFakeMethodResult(classStartGame, "placeId", uintptr(118593852151835))
+	hostabi.SetFakeMethodResult(classStartGame, "userId", uintptr(1))
+	hostabi.SetFakeMethodResult(classStartGame, "username", str("rbxrt"))
 
 	// InitParams: where the client would sign in and what it reports itself as.
 	// The URLs are the real site's; networking is not realized, so anything that
