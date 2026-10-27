@@ -449,7 +449,7 @@ func jniEnvFn(id, env, a1, a2, a3, a4, a5 uintptr) uintptr {
 	// fills, writes are stored so a later read sees them.
 	switch {
 	case id >= 34 && id <= 63: // Call<Type>Method[V/A]
-		return jniCallInstance(a1, a2)
+		return jniCallInstance(id, a1, a2, jniFirstCallArg(id, a3))
 	case id >= 95 && id <= 112: // Get/Set<Type>Field
 		if id%2 == 1 { // 95 GetObjectField, 97 GetBooleanField, … odd = get
 			return jniGetFieldValue(a1, a2)
@@ -457,7 +457,7 @@ func jniEnvFn(id, env, a1, a2, a3, a4, a5 uintptr) uintptr {
 		jniSetFieldValue(a1, a2, a3)
 		return 0
 	case id >= 114 && id <= 143: // CallStatic<Type>Method[V/A]
-		return jniCallStatic(a1, a2)
+		return jniCallStatic(a1, a2, jniFirstCallArg(id, a3))
 	case id >= 145 && id <= 162: // Get/SetStatic<Type>Field
 		if id%2 == 1 {
 			return jniGetStaticFieldValue(a1, a2)
@@ -537,4 +537,26 @@ func jniEnvFn(id, env, a1, a2, a3, a4, a5 uintptr) uintptr {
 		return 1 // JNILocalRefType
 	}
 	return jniUnimpl(id)
+}
+
+// jniFirstCallArg normalizes the first argument of the three JNI call forms.
+// Direct calls pass it in the third register; V calls pass a SysV va_list;
+// A calls pass a jobject array. This matters for ClassLoader.findClass, whose
+// argument is otherwise mistaken for the va_list address itself.
+func jniFirstCallArg(id, p uintptr) uintptr {
+	if p == 0 {
+		return 0
+	}
+	switch id % 3 {
+	case 2: // Call<Type>MethodV
+		gp := uint32(ld64(p))
+		if gp < 48 {
+			return ld64(ld64(p+16) + uintptr(gp))
+		}
+		return ld64(ld64(p + 8))
+	case 0: // Call<Type>MethodA
+		return ld64(p)
+	default: // direct varargs form
+		return p
+	}
 }

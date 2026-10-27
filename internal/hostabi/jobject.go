@@ -41,6 +41,7 @@ var (
 	jniMethodResults         = map[[2]string]uintptr{} // (class, name) -> result
 	jniMethodFuncs           = map[[2]string]func() uintptr{}
 	jniReported              = map[string]bool{}
+	jniNativeGLImplementation uintptr
 )
 
 // NewFakeObject mints a handle for an instance of class, which the driver
@@ -95,6 +96,11 @@ func SetFakeMethodFunc(class, method string, f func() uintptr) {
 	defer jniObjMu.Unlock()
 	jniMethodFuncs[[2]string{class, method}] = f
 }
+
+// SetNativeGLImplementation models NativeGLJavaInterface.setImplementation,
+// which is a Java-side singleton assignment performed by ActivityNativeMain
+// before the app bridge starts.
+func SetNativeGLImplementation(v uintptr) { jniNativeGLImplementation = v }
 
 // jniMethodValue resolves a (class, method) answer: a computed one when the
 // driver registered a function, otherwise the stored value.
@@ -159,9 +165,18 @@ func jniReport(kind string, m jniMember) {
 
 // jniCallInstance handles the Call<Type>Method range: obj has the method id,
 // and the result comes from the class the object instantiates.
-func jniCallInstance(obj, mid uintptr) uintptr {
+func jniCallInstance(_ uintptr, obj, mid, arg uintptr) uintptr {
 	m := jniMethodIds[mid]
 	cls := jniObjectClass(obj)
+	// MainGameActivity's init-params path asks its ClassLoader to resolve
+	// native model classes. A real CallObjectMethod carries the requested
+	// class name as its first argument; mirror ART by returning that class
+	// handle instead of the null placeholder.
+	if m.name == "findClass" || m.name == "loadClass" {
+		if arg != 0 {
+			return jniFindClassHandle(cstr(arg))
+		}
+	}
 	if v, ok := jniMethodValue(cls, m.name); ok {
 		jniTraceCall("method", cls, m.name, v)
 		return v
@@ -180,11 +195,18 @@ func jniCallInstance(obj, mid uintptr) uintptr {
 
 // jniCallStatic handles CallStatic<Type>Method: the class is the first
 // argument, and the result is keyed by that class.
-func jniCallStatic(cls, mid uintptr) uintptr {
+func jniCallStatic(cls, mid, arg uintptr) uintptr {
 	m := jniMethodIds[mid]
 	name := jniClassName(cls)
 	if name == "" {
 		name = m.class
+	}
+	if name == "com/roblox/engine/jni/NativeGLJavaInterface" && m.name == "getImplementation" {
+		return jniNativeGLImplementation
+	}
+	if name == "com/roblox/engine/jni/NativeGLJavaInterface" && m.name == "setImplementation" {
+		jniNativeGLImplementation = arg
+		return 0
 	}
 	if v, ok := jniMethodValue(name, m.name); ok {
 		jniTraceCall("static", name, m.name, v)

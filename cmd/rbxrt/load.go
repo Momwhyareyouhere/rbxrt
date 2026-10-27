@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unsafe"
 
 	"rbxrt/internal/engine"
 	"rbxrt/internal/hostabi"
@@ -346,28 +345,6 @@ func launchGameActivity(im *loader.Image, handle uintptr) error {
 		}
 	}
 	fmt.Printf("launch: lifecycle drove to onSurfaceRedrawNeeded\n")
-	// Best-effort: pin the engine's main-thread id to this goroutine's id so
-	// the component-init dispatch doesn't hand work to a different thread.
-	if os.Getenv("RBXRT_BOOT") != "" {
-		hostabi.SetMainThreadID(hostabi.GetG())
-		// Try to write the cached global if we can find the image mapping
-		if b, err := os.ReadFile("/proc/self/maps"); err == nil {
-			for _, line := range strings.Split(string(b), "\n") {
-				if strings.Contains(line, "libroblox") {
-					idx := strings.Index(line, "-")
-					if idx >= 0 {
-						var start uint64
-						fmt.Sscanf(line[:idx], "%x", &start)
-						if start != 0 {
-							base := uintptr(start)
-							*(*uintptr)(unsafe.Pointer(base + 0x76414b8)) = hostabi.GetG()
-						}
-						break
-					}
-				}
-			}
-		}
-	}
 	holdForRendering(im, javaBootKick(im))
 	return nil
 }
@@ -492,6 +469,7 @@ func javaBootKick(im *loader.Image) (pump func() int) {
 	defer stopWatchdog()
 
 	call("nativeGameGlobalInit", 0)
+	call("nativeUpdateAdapterInit", 0)
 	// Android initializes the native flag provider from its preferences before
 	// loading client settings or constructing the app bridge. This clean launch
 	// has no persisted overrides, so pass an empty fake String array.
@@ -509,7 +487,8 @@ func javaBootKick(im *loader.Image) (pump func() int) {
 	// objects. The settings payload above is sufficient for this host path.
 	callOther("com/roblox/client/startup/MainGameActivity", "nativeSetAssetPath",
 		hostabi.NewJavaString(filepath.Join(rbxrtDataDir(), "assets", "content")))
-	call("nativeAppBridgeV2InitWithParams", hostabi.NewFakeObject(classInitArgs))
+	initParams := hostabi.NewFakeObject(classInitArgs)
+	call("nativeAppBridgeV2InitWithParams", initParams)
 	// Disable the generated telemetry sink itself during the pre-scheduler
 	// phase. Entering its exception machinery is what produces the int3 at
 	// 0x6d43424; telemetry is not required to create the graphics context.
@@ -519,20 +498,32 @@ func javaBootKick(im *loader.Image) (pump func() int) {
 	if err := hostabi.PatchGuest(im.Bias+0x26aa865, []byte{0x90, 0x90, 0x90, 0x90, 0x90}); err != nil {
 		fmt.Fprintf(os.Stderr, "rbxrt: key-event probe skip: %v\n", err)
 	}
+	callArgs("com/roblox/engine/jni/NativeGLInterface", "setTaskSchedulerBackgroundMode",
+		env, cls, 0, hostabi.NewJavaString("ASMA.start"))
 	call("nativeAppBridgeV2StartAppWithParams", hostabi.NewFakeObject(classStartApp))
+	if fn, ok := im.Exports[prefix+"nativeCallMessagesFromMainThread"]; ok {
+		hostabi.CallGuestInt3(fn, env, cls, 0)
+	}
+	// MainGameActivity dispatches this through its executor immediately after
+	// StartApp. It installs the Maquettes/render integration used by the native
+	// app bridge; without the Java executor, the native bridge remains in its
+	// pre-render state.
+	callArgs("com/roblox/engine/jni/NativeGLInterface", "initMaquettesSDK",
+		env, cls, javaActivity)
 	startGame := os.Getenv("RBXRT_START_GAME") != ""
 	if !startGame {
 		// Java sends a second surface/platform update after the app bridge starts;
 		// this is the notification that normally drives the app render view.
-		callArgs("com/roblox/engine/jni/NativeGLInterface", "nativeAppBridgeV2UpdateSurfaceAppWithPlatformParams",
-			env, cls, javaSurface, hostabi.NewFakeObject(classPlatform))
 		if err := hostabi.PatchGuest(im.Bias+0x24f4fed, []byte{0x90, 0x90, 0x90, 0x90, 0x90}); err != nil {
 			fmt.Fprintf(os.Stderr, "rbxrt: Lua-start key probe skip: %v\n", err)
 		}
 		call("nativeAppBridgeStartLuaAppDM", 0)
-		call("nativeAppBridgeV2SendAppEventOnAppReady", 0)
-		call("nativeScheduleOnFirstFrame", 0)
 	}
+	callArgs("com/roblox/engine/jni/NativeGLInterface", "nativeAppBridgeV2SendAppEventOnAppReady",
+		env, cls, hostabi.NewJavaString(""), hostabi.NewJavaString(""),
+		hostabi.NewJavaString(""), hostabi.NewJavaString(""))
+	callArgs("com/roblox/engine/jni/NativeGLInterface", "nativeScheduleOnFirstFrame",
+		env, cls, hostabi.NewFakeObject("java/lang/Runnable"))
 	if startGame {
 		// StartGame has the same synthetic key-event probe as StartApp, but at
 		// its own call site. There is no Android input queue in the host.
@@ -556,7 +547,15 @@ func javaBootKick(im *loader.Image) (pump func() int) {
 		return nil
 	}
 	fmt.Printf("boot: will pump %s once per frame\n", pumpName)
-	return func() int { return hostabi.CallGuestInt3(fn, env, cls, 0) }
+	updates := 0
+	return func() int {
+		if updates < 1 {
+			updates++
+			callArgs("com/roblox/engine/jni/NativeGLInterface", "nativeAppBridgeV2UpdateSurfaceAppWithPlatformParams",
+				env, cls, javaSurface, hostabi.NewFakeObject(classPlatform))
+		}
+		return hostabi.CallGuestInt3(fn, env, cls, 0)
+	}
 }
 
 // holdForRendering keeps the process open after the lifecycle: the engine

@@ -43,6 +43,8 @@ const (
 	classLoader     = "java/lang/ClassLoader"
 )
 
+var seededPlatform uintptr
+
 // processStart is the reference point for the process timestamp the logging
 // protocol reports.
 var processStart = time.Now()
@@ -195,6 +197,7 @@ func seedJavaValues() {
 	// The platform: one logical pixel per pixel, a desktop-sized panel in
 	// millimetres, and all three input devices present.
 	platform := hostabi.NewFakeObject(classPlatform)
+	seededPlatform = platform
 	hostabi.SetFakeField(classPlatform, "assetFolderPath", str(filepath.Join(rbxrtDataDir(), "assets")))
 	hostabi.SetFakeField(classPlatform, "dpiScale", uintptr(math.Float32bits(1)))
 	hostabi.SetFakeField(classPlatform, "isKeyboardDevice", 1)
