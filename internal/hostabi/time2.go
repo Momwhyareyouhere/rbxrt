@@ -19,6 +19,8 @@ var (
 	zoneStrings = map[string]uintptr{}
 )
 
+var utcZoneName = [4]byte{'U', 'T', 'C', 0}
+
 // zoneString interns a time-zone name so repeated localtime calls do not keep
 // allocating new C strings.
 func zoneString(name string) uintptr {
@@ -57,8 +59,60 @@ func goGmtimeR(tp, result uintptr) uintptr {
 		return 0
 	}
 	sec := *(*int64)(unsafe.Pointer(tp))
-	writeTM(result, time.Unix(sec, 0).UTC(), false)
+	// Keep this callback entirely allocation-free: it runs on the guest stack.
+	// Convert Unix seconds to a proleptic Gregorian date using civil_from_days.
+	days := sec / 86400
+	rem := sec % 86400
+	if rem < 0 {
+		days--
+		rem += 86400
+	}
+	z := days + 719468
+	era := z / 146097
+	if z < 0 {
+		era = (z - 146096) / 146097
+	}
+	doe := z - era*146097
+	yoe := (doe - doe/1460 + doe/36524 - doe/146096) / 365
+	y := yoe + era*400
+	doy := doe - (365*yoe + yoe/4 - yoe/100)
+	mp := (5*doy + 2) / 153
+	d := doy - (153*mp+2)/5 + 1
+	m := mp + 3
+	if mp >= 10 {
+		m = mp - 9
+	}
+	if m <= 2 {
+		y++
+	}
+	putTM32(result, 0, int32(rem%60))
+	putTM32(result, 4, int32((rem/60)%60))
+	putTM32(result, 8, int32(rem/3600))
+	putTM32(result, 12, int32(d))
+	putTM32(result, 16, int32(m-1))
+	putTM32(result, 20, int32(y-1900))
+	wday := (days + 4) % 7
+	if wday < 0 {
+		wday += 7
+	}
+	putTM32(result, 24, int32(wday))
+	putTM32(result, 28, int32(days-int64(daysBeforeYear(y))-daysBeforeYear(1970)))
+	putTM32(result, 32, 0)
+	*(*int64)(unsafe.Pointer(result + 40)) = 0
+	*(*uintptr)(unsafe.Pointer(result + 48)) = uintptr(unsafe.Pointer(&utcZoneName[0]))
 	return result
+}
+
+//go:nosplit
+func putTM32(dst, off uintptr, v int32) { *(*int32)(unsafe.Pointer(dst + off)) = v }
+
+// daysBeforeYear returns days before January 1 of the Gregorian year.
+// It is used only for tm_yday and intentionally has no runtime dependencies.
+//
+//go:nosplit
+func daysBeforeYear(y int64) int64 {
+	y--
+	return 365*y + y/4 - y/100 + y/400
 }
 
 //go:noinline

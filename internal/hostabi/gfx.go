@@ -410,22 +410,20 @@ func goANativeWindowFromSurface(env, surface uintptr) uintptr {
 	return p
 }
 
+//go:nosplit
 func goANativeWindowGetWidth(win uintptr) int {
-	gfx.mu.Lock()
-	defer gfx.mu.Unlock()
-	if w, ok := gfx.windows[win]; ok {
-		return w.w
+	if gfx.width != 0 {
+		return gfx.width
 	}
-	return gfx.width
+	return 1280
 }
 
+//go:nosplit
 func goANativeWindowGetHeight(win uintptr) int {
-	gfx.mu.Lock()
-	defer gfx.mu.Unlock()
-	if w, ok := gfx.windows[win]; ok {
-		return w.h
+	if gfx.height != 0 {
+		return gfx.height
 	}
-	return gfx.height
+	return 720
 }
 
 func goANativeWindowAcquire(win uintptr) {}

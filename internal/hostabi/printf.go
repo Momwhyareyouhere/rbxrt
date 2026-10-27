@@ -2,10 +2,13 @@ package hostabi
 
 import (
 	"math"
+	"os"
 	"strconv"
 	"strings"
 	"unsafe"
 )
+
+var bootPrintfMode = os.Getenv("RBXRT_BOOT") != ""
 
 // --- C varargs on x86-64 -------------------------------------------------
 //
@@ -359,7 +362,35 @@ func copyToGuest(dst uintptr, b []byte) {
 // to size-1 bytes plus a NUL when size > 0, exactly as C requires.
 //
 //go:noinline
+//go:nosplit
 func goVsnprintf(str, size, format, ap uintptr) int {
+	// Native startup uses this for optional diagnostics while still on the
+	// guest stack. Formatting there can grow the Go stack; an empty result is
+	// preferable to corrupting the guest call frame. Full formatting remains
+	// available to the non-startup printf entry points below.
+	if bootPrintfMode {
+		if str != 0 && size != 0 {
+			*(*byte)(unsafe.Pointer(str)) = 0
+		}
+		return 0
+	}
+	if format == 0 {
+		if str != 0 && size != 0 {
+			*(*byte)(unsafe.Pointer(str)) = 0
+		}
+		return 0
+	}
+	// glibc/Android callers commonly probe the required size with a null
+	// destination. Avoid the allocating formatter on the guest stack for that
+	// startup probe; the exact formatted length is not needed by the engine's
+	// diagnostic path, while returning the format length is safe and bounded.
+	if str == 0 && size == 0 {
+		n := uintptr(0)
+		for n < 1<<20 && *(*byte)(unsafe.Pointer(format + n)) != 0 {
+			n++
+		}
+		return int(n)
+	}
 	out := formatC(cstr(format), (*vaList)(unsafe.Pointer(ap)))
 	n := len(out)
 	if size != 0 {
@@ -381,6 +412,7 @@ func goVsnprintf(str, size, format, ap uintptr) int {
 // ignored beyond using the same bounded copy as goVsnprintf.
 //
 //go:noinline
+//go:nosplit
 func goVsnprintfChk(a1, a2, a3, a4, a5, a6 uintptr) int {
 	_ = a3
 	_ = a4

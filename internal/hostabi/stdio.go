@@ -2,6 +2,7 @@ package hostabi
 
 import (
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"unsafe"
 )
@@ -20,6 +21,17 @@ type cFile struct {
 	ungot  int  // pushback byte, or -1
 	append bool
 }
+
+// Guest callbacks run on the engine's stack. They must not allocate or grow
+// that stack before returning to the engine. fopen is used very early while
+// client settings are loaded, so keep a small allocation-free registry for
+// that path; the normal map remains available for all later stdio calls.
+type fastFileSlot struct {
+	cf   cFile
+	used atomic.Uint32
+}
+
+var fastFiles [64]fastFileSlot
 
 var (
 	fileRegMu sync.Mutex
@@ -55,13 +67,34 @@ func registerFile(cf *cFile) uintptr {
 }
 
 func lookupFile(p uintptr) *cFile {
+	for i := range &fastFiles {
+		if uintptr(unsafe.Pointer(&fastFiles[i].cf)) == p && fastFiles[i].used.Load() != 0 {
+			return &fastFiles[i].cf
+		}
+	}
 	fileRegMu.Lock()
 	cf := fileReg[p]
 	fileRegMu.Unlock()
 	return cf
 }
 
+//go:nosplit
+func lookupFastFile(p uintptr) *cFile {
+	for i := range &fastFiles {
+		if uintptr(unsafe.Pointer(&fastFiles[i].cf)) == p && fastFiles[i].used.Load() != 0 {
+			return &fastFiles[i].cf
+		}
+	}
+	return nil
+}
+
 func dropFile(p uintptr) {
+	for i := range &fastFiles {
+		if uintptr(unsafe.Pointer(&fastFiles[i].cf)) == p {
+			fastFiles[i].used.Store(0)
+			return
+		}
+	}
 	fileRegMu.Lock()
 	delete(fileReg, p)
 	fileRegMu.Unlock()
@@ -97,17 +130,66 @@ func openFlags(mode string) (int, bool) {
 }
 
 //go:noinline
+//go:nosplit
 func goFopen(path, mode uintptr) uintptr {
-	flags, ok := openFlags(cstr(mode))
+	// Do not call cstr/openFlags here: both allocate on the Go stack. The
+	// startup fopen thunk is entered with the guest stack installed as g.stack.
+	flags, ok := openFlagsGuest(mode)
 	if !ok {
 		return 0
 	}
 	fd := rawSysNoEnter(2, path, uintptr(flags), 0666)
-	debugAssetFileOpen("fopen", path, fd)
 	if int64(fd) < 0 {
 		return 0
 	}
-	return registerFile(&cFile{fd: int(fd), owned: true, ungot: -1, append: flags&syscall.O_APPEND != 0})
+	for i := range &fastFiles {
+		s := &fastFiles[i]
+		if s.used.CompareAndSwap(0, 1) {
+			s.cf.fd = int(fd)
+			s.cf.owned = true
+			s.cf.ungot = -1
+			s.cf.append = flags&syscall.O_APPEND != 0
+			return uintptr(unsafe.Pointer(&s.cf))
+		}
+	}
+	rawSysNoEnter(3, fd, 0, 0)
+	return 0
+}
+
+//go:nosplit
+func openFlagsGuest(mode uintptr) (int, bool) {
+	if mode == 0 {
+		return 0, false
+	}
+	b := *(*byte)(unsafe.Pointer(mode))
+	plus := false
+	for i := uintptr(0); i < 8; i++ {
+		c := *(*byte)(unsafe.Pointer(mode + i))
+		if c == 0 {
+			break
+		}
+		if c == '+' {
+			plus = true
+		}
+	}
+	switch b {
+	case 'r':
+		if plus {
+			return syscall.O_RDWR, true
+		}
+		return syscall.O_RDONLY, true
+	case 'w':
+		if plus {
+			return syscall.O_RDWR | syscall.O_CREAT | syscall.O_TRUNC, true
+		}
+		return syscall.O_WRONLY | syscall.O_CREAT | syscall.O_TRUNC, true
+	case 'a':
+		if plus {
+			return syscall.O_RDWR | syscall.O_CREAT | syscall.O_APPEND, true
+		}
+		return syscall.O_WRONLY | syscall.O_CREAT | syscall.O_APPEND, true
+	}
+	return 0, false
 }
 
 //go:noinline
@@ -119,26 +201,42 @@ func goFdopen(fd, mode uintptr) uintptr {
 }
 
 //go:noinline
+//go:nosplit
 func goFclose(stream uintptr) int {
-	cf := lookupFile(stream)
-	if cf == nil {
-		return -1
+	for i := range &fastFiles {
+		s := &fastFiles[i]
+		if uintptr(unsafe.Pointer(&s.cf)) == stream && s.used.Load() != 0 {
+			rawSysNoEnter(3, uintptr(s.cf.fd), 0, 0)
+			s.used.Store(0)
+			return 0
+		}
 	}
-	cf.mu.Lock()
-	defer cf.mu.Unlock()
-	if cf.owned {
-		rawSysNoEnter(3, uintptr(cf.fd), 0, 0)
+	if stream == stdinPtr || stream == stdoutPtr || stream == stderrPtr {
+		return 0
 	}
-	dropFile(stream)
-	return 0
+	return -1
+	/*
+		cf := lookupFile(stream)
+		if cf == nil {
+			return -1
+		}
+		cf.mu.Lock()
+		defer cf.mu.Unlock()
+		if cf.owned {
+			rawSysNoEnter(3, uintptr(cf.fd), 0, 0)
+		}
+		dropFile(stream)
+		return 0
+	*/
 }
 
 //go:noinline
+//go:nosplit
 func goFflush(stream uintptr) int {
 	if stream == 0 {
 		return 0
 	}
-	if lookupFile(stream) == nil {
+	if stream != stdinPtr && stream != stdoutPtr && stream != stderrPtr && lookupFastFile(stream) == nil {
 		return -1
 	}
 	return 0
@@ -195,26 +293,61 @@ func fileWrite(cf *cFile, buf []byte) int {
 }
 
 //go:noinline
+//go:nosplit
 func goFread(ptr, size, nmemb, stream uintptr) uintptr {
-	cf := lookupFile(stream)
-	if cf == nil || size == 0 || nmemb == 0 {
+	if size == 0 || nmemb == 0 {
 		return 0
 	}
 	total := int(size * nmemb)
-	buf := unsafe.Slice((*byte)(unsafe.Pointer(ptr)), total)
-	n := fileRead(cf, buf)
+	fd := -1
+	if stream == stdinPtr {
+		fd = 0
+	}
+	if cf := lookupFastFile(stream); cf != nil {
+		fd = cf.fd
+	}
+	if fd < 0 {
+		return 0
+	}
+	n := 0
+	for n < total {
+		r := rawSysNoEnter(0, uintptr(fd), ptr+uintptr(n), uintptr(total-n))
+		if int64(r) < 0 || r == 0 {
+			break
+		}
+		n += int(r)
+	}
 	return uintptr(n / int(size))
 }
 
 //go:noinline
+//go:nosplit
 func goFwrite(ptr, size, nmemb, stream uintptr) uintptr {
-	cf := lookupFile(stream)
-	if cf == nil || size == 0 || nmemb == 0 {
+	if size == 0 || nmemb == 0 {
 		return 0
 	}
 	total := int(size * nmemb)
-	buf := unsafe.Slice((*byte)(unsafe.Pointer(ptr)), total)
-	n := fileWrite(cf, buf)
+	fd := -1
+	if stream == stdoutPtr {
+		fd = 1
+	}
+	if stream == stderrPtr {
+		fd = 2
+	}
+	if cf := lookupFastFile(stream); cf != nil {
+		fd = cf.fd
+	}
+	if fd < 0 {
+		return 0
+	}
+	n := 0
+	for n < total {
+		w := rawSysNoEnter(1, uintptr(fd), ptr+uintptr(n), uintptr(total-n))
+		if int64(w) < 0 || w == 0 {
+			break
+		}
+		n += int(w)
+	}
 	return uintptr(n / int(size))
 }
 
@@ -237,8 +370,9 @@ func goFwriteChk(a1, a2, a3, a4, a5 uintptr) uintptr {
 // --- positioning ---------------------------------------------------------
 
 //go:noinline
+//go:nosplit
 func goFseek(stream, off, whence uintptr) int {
-	cf := lookupFile(stream)
+	cf := lookupFastFile(stream)
 	if cf == nil {
 		return -1
 	}
@@ -253,8 +387,9 @@ func goFseek(stream, off, whence uintptr) int {
 }
 
 //go:noinline
+//go:nosplit
 func goFtell(stream uintptr) int64 {
-	cf := lookupFile(stream)
+	cf := lookupFastFile(stream)
 	if cf == nil {
 		return -1
 	}
@@ -287,13 +422,23 @@ func goFgetc(stream uintptr) int {
 }
 
 //go:noinline
+//go:nosplit
 func goFputc(c, stream uintptr) int {
-	cf := lookupFile(stream)
-	if cf == nil {
+	fd := -1
+	if stream == stdoutPtr {
+		fd = 1
+	}
+	if stream == stderrPtr {
+		fd = 2
+	}
+	if cf := lookupFastFile(stream); cf != nil {
+		fd = cf.fd
+	}
+	if fd < 0 {
 		return -1
 	}
-	b := [1]byte{byte(c)}
-	if fileWrite(cf, b[:]) != 1 {
+	b := byte(c)
+	if int64(rawSysNoEnter(1, uintptr(fd), uintptr(unsafe.Pointer(&b)), 1)) != 1 {
 		return -1
 	}
 	return int(byte(c))

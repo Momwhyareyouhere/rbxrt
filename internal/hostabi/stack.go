@@ -32,10 +32,10 @@ const (
 	// generous: the engine recurses through its task machinery and a renderer's
 	// frames are large. The region is mapped with MAP_NORESERVE, so only the
 	// pages actually touched are backed.
-	guestStackSize = 32 << 20
+	guestStackSize = 256 << 20
 	// guestGuardSize is extra address space below the usable region, so an
 	// overflow lands in space adjacent to the mapping rather than inside it.
-	guestGuardSize = 1 << 20
+	guestGuardSize = 4 << 20
 
 	// Every host thunk records the guest return address, frame pointer and SP
 	// of its call site in the guest stack's guard region, three words below the

@@ -177,9 +177,21 @@ func goSetAbortMessage(msg uintptr) {
 // aborts. It never returns.
 //
 //go:noinline
+//go:nosplit
 func goTrap(namePtr uintptr) {
-	fmt.Fprintf(os.Stderr, "rbxrt: fatal: guest called unimplemented host symbol %q\n", cstr(namePtr))
-	os.Exit(70) // EX_SOFTWARE
+	// This is entered on the guest stack; formatting the diagnostic with Go
+	// would attempt a stack split and hide the actual missing symbol. Write the
+	// symbol directly, then terminate through the kernel.
+	if namePtr != 0 {
+		n := uintptr(0)
+		for n < 4096 && *(*byte)(unsafe.Pointer(namePtr + n)) != 0 {
+			n++
+		}
+		rawSysNoEnter(1, 2, namePtr, n)
+	}
+	rawSysNoEnter(60, 70, 0, 0)
+	for {
+	}
 }
 
 // --- android log ---------------------------------------------------------
@@ -595,9 +607,9 @@ func goMadvise(addr, length, advice uintptr) int {
 // --- file descriptors ----------------------------------------------------
 
 //go:noinline
+//go:nosplit
 func goOpen(path, flags, mode uintptr) int {
 	fd := rawSysNoEnter(2, path, flags, mode)
-	debugAssetFileOpen("open", path, fd)
 	if int64(fd) < 0 {
 		return -1
 	}
@@ -625,6 +637,7 @@ func debugAssetFileOpen(op string, path, result uintptr) {
 }
 
 //go:noinline
+//go:nosplit
 func goClose(fd uintptr) int {
 	if r := rawSysNoEnter(3, fd, 0, 0); int64(r) < 0 {
 		return -1
@@ -834,6 +847,7 @@ func goPthreadEqual(a, b uintptr) int {
 // still inside fn, so that caller can observe a half-constructed object.
 //
 //go:noinline
+//go:nosplit
 func goPthreadOnce(once, fn uintptr) int {
 	p := (*uint32)(unsafe.Pointer(once))
 	for {
@@ -847,7 +861,9 @@ func goPthreadOnce(once, fn uintptr) int {
 				return 0
 			}
 		default: // 1: another thread is running fn
-			runtime.Gosched()
+			// This callback runs on the guest stack; Gosched may grow it while
+			// waiting. The initializer is short, so spin without entering the
+			// Go scheduler.
 		}
 	}
 }

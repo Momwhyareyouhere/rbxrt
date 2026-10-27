@@ -224,8 +224,8 @@ func seedJavaValues() {
 	// the concrete Collections$EmptyList implementation.
 	hostabi.SetFakeMethodResult("java/util/List", "size", 0)
 	hostabi.SetFakeMethodResult("java/util/List", "isEmpty", 1)
-	hostabi.SetFakeMethodResult("java/util/List", "toArray", hostabi.NewFakeObject("[Ljava/lang/Object;"))
-	hostabi.SetFakeMethodResult("java/util/List", "iterator", hostabi.NewFakeObject("java/util/Collections$EmptyIterator"))
+	// Leave optional array/iterator accessors unset: native code treats a null
+	// result as an empty Java list, while a fake array has no ART array header.
 	hostabi.SetFakeMethodResult("java/util/Iterator", "hasNext", 0)
 	// A class loader for the reflection the engine does (it asks the Java side
 	// for one, then looks classes up through it). The object is real to the

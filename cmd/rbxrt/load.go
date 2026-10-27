@@ -505,11 +505,17 @@ func javaBootKick(im *loader.Image) (pump func() int) {
 	callArgs("com/roblox/engine/jni/NativeGLInterface", "nativeInitClientSettings",
 		env, cls, hostabi.NewJavaString(`{"applicationSettings":{}}`),
 		hostabi.NewJavaString(""), hostabi.NewJavaString("production"))
-	callArgs("com/roblox/engine/jni/NativeGLInterface", "nativePostClientSettingsLoadedInitialization3",
-		env, cls, hostabi.NewFakeObject("java/util/Collections$EmptyList"))
+	// The post-settings callback remains Java/ART-only; StartApp performs the
+	// native continuation directly on this host.
 	callOther("com/roblox/client/startup/MainGameActivity", "nativeSetAssetPath",
 		hostabi.NewJavaString(filepath.Join(rbxrtDataDir(), "assets", "content")))
 	call("nativeAppBridgeV2InitWithParams", hostabi.NewFakeObject(classInitArgs))
+	// Disable the generated telemetry sink itself during the pre-scheduler
+	// phase. Entering its exception machinery is what produces the int3 at
+	// 0x6d43424; telemetry is not required to create the graphics context.
+	if err := hostabi.PatchGuest(im.Bias+0x6d42f0c, []byte{0x31, 0xc0, 0xc3}); err != nil {
+		fmt.Fprintf(os.Stderr, "rbxrt: telemetry sink skip: %v\n", err)
+	}
 	call("nativeAppBridgeV2StartAppWithParams", hostabi.NewFakeObject(classStartApp))
 
 	pumpName := prefix + "nativeCallMessagesFromMainThread"
