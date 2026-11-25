@@ -100,6 +100,16 @@ func CallGuestVoid(fn uintptr) {
 	invokeGuest(fn, 0, 0, 0)
 }
 
+// callGuestCInt calls a guest function whose C return type is int. Only %eax
+// carries the result: x86-64 code computing it with 32-bit instructions
+// leaves the upper half of %rax zero (or anything), so a comparator's -1
+// arrives as 0x00000000ffffffff - a large positive number - unless it is
+// sign-extended from 32 bits, as here. Every int-returning guest callback
+// (qsort/bsearch comparators, looper callbacks) must go through this.
+func callGuestCInt(fn, a, b, c uintptr) int32 {
+	return int32(CallGuestInt3(fn, a, b, c))
+}
+
 // CallGuestInt3 invokes a guest function with three integer arguments and
 // returns its integer result.
 func CallGuestInt3(fn, a, b, c uintptr) int {
@@ -1386,7 +1396,14 @@ var tlsKeyNext uint32
 func goPthreadSetnameNp(thread, name uintptr) int { return 0 }
 
 //go:noinline
-func goPthreadSigmask(how, set, old uintptr) int { return 0 }
+func goPthreadSigmask(how, set, old uintptr) int {
+	// Guest threads never have signals delivered to them by this runtime, so
+	// their mask is always empty; report that (bionic's 8-byte sigset_t).
+	if old != 0 {
+		*(*uint64)(unsafe.Pointer(old)) = 0
+	}
+	return 0
+}
 
 //go:noinline
 func goPthreadAttrInit(a uintptr) int {

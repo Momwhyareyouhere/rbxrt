@@ -394,6 +394,11 @@ func scanfCore(fmtv string, src *scanSrc, v *vaList) int {
 			case 'L':
 				length = 5
 				i++
+			case 'z', 'j', 't':
+				// size_t, intmax_t, ptrdiff_t: all 64-bit on LP64 bionic.
+				// (/proc/self/statm is read with "%zu %zu %zu".)
+				length = 3
+				i++
 			}
 		}
 		if i >= len(fmtv) {

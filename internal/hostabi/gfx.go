@@ -203,6 +203,16 @@ func InitGraphics() error {
 	hostFuncs["eglInitialize"] = goEglInitialize
 	hostFuncs["eglCreateContext"] = goEglCreateContext
 	hostFuncs["eglMakeCurrent"] = goEglMakeCurrent
+	// Under RBXRT_DEBUG_GFX, count draw calls so a run shows whether frames
+	// carry any geometry (reported every 60 swaps by goEglSwapBuffers).
+	if debugGFX {
+		glDrawArraysHost = hostDlsym(gfx.gles, "glDrawArrays")
+		glDrawElementsHost = hostDlsym(gfx.gles, "glDrawElements")
+		if glDrawArraysHost != 0 && glDrawElementsHost != 0 {
+			hostFuncs["glDrawArrays"] = goGlDrawArrays
+			hostFuncs["glDrawElements"] = goGlDrawElements
+		}
+	}
 	// GLSL ES compatibility shim; see glsl.go.
 	if glShaderSourceHost = hostDlsym(gfx.gles, "glShaderSource"); glShaderSourceHost != 0 {
 		hostFuncs["glShaderSource"] = goGlShaderSource
@@ -357,7 +367,10 @@ func goEglMakeCurrent(display, draw, read, ctx uintptr) uintptr {
 
 //go:noinline
 func goEglSwapBuffers(display, surface uintptr) uintptr {
-	atomic.AddInt64(&eglSwapCount, 1)
+	if n := atomic.AddInt64(&eglSwapCount, 1); debugGFX && n%60 == 0 {
+		writeStderrRaw(fmt.Sprintf("rbxrt: gfx: swap %d: %d draw calls in the last 60 frames\n",
+			n, atomic.SwapInt64(&glDrawCount, 0)))
+	}
 	r := callHostC(gfx.fnEglSwapBuffers, &[9]uintptr{display, surface})
 	if debugGFX {
 		fmt.Fprintf(os.Stderr, "rbxrt: gfx: eglSwapBuffers(dpy=%#x surf=%#x) -> %#x (count %d)\n",
@@ -433,3 +446,20 @@ func goANativeWindowGetHeight(win uintptr) int {
 func goANativeWindowAcquire(win uintptr) {}
 
 func goANativeWindowRelease(win uintptr) {}
+
+var (
+	glDrawArraysHost, glDrawElementsHost uintptr
+	glDrawCount                          int64
+)
+
+//go:noinline
+func goGlDrawArrays(mode, first, count uintptr) uintptr {
+	atomic.AddInt64(&glDrawCount, 1)
+	return callHostC(glDrawArraysHost, &[9]uintptr{mode, first, count})
+}
+
+//go:noinline
+func goGlDrawElements(mode, count, typ, indices uintptr) uintptr {
+	atomic.AddInt64(&glDrawCount, 1)
+	return callHostC(glDrawElementsHost, &[9]uintptr{mode, count, typ, indices})
+}

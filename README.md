@@ -252,6 +252,7 @@ RBXRT_WALK=1         # dump the guest RBP chain at a fatal exit/abort
 RBXRT_PATCH_REG=off  # disable the telemetry stop-gap to reproduce the crash (2.734)
 RBXRT_GOMAXPROCS=<n> # Go P pool size (default 256; see cmd/rbxrt/main.go)
 RBXRT_BREAK=<offs>   # int3 at these image offsets (hex, comma-separated), for gdb
+RBXRT_GDB_STOP=<file> # write the image bias to <file> and SIGTRAP once, for gdb scripts
 ```
 
 The engine writes its own log to `<data>/appData/logs/*_last.log`. Its FLog
@@ -273,6 +274,9 @@ Boot inputs (`--launch`):
 RBXRT_BOOT=1                # play the Java side: flags, settings, app bridge
 RBXRT_DATA=<dir>            # app data directory; becomes the engine's cwd
 RBXRT_BOOT_WATCHDOG=<secs>  # report stuck guest threads after this long (30)
+RBXRT_LAUNCH_HOLD_SECS=<n>  # keep rendering this long after boot (15)
+RBXRT_HOLD_DUMP=1           # at the end of the hold, list every guest thread
+RBXRT_FETCH_SETTINGS=1      # pass the live AndroidApp flags from Roblox's CDN
 ```
 
 With `RBXRT_BOOT` the data directory is prepared from the APK (`assets/content`,

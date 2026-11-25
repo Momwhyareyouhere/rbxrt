@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"rbxrt/internal/engine"
@@ -132,6 +133,7 @@ func cmdLoad(args []string) error {
 		applyTelemetryWorkaround(im.Bias)
 	}
 	plantBreakpoints(im.Bias)
+	gdbStop(im.Bias)
 
 	// The engine keeps its working files (cache/, http/, appData/, exe/)
 	// relative to the current directory, as it does on Android where the
@@ -392,18 +394,7 @@ func bootWatchdog(im *loader.Image) func() {
 		case <-time.After(time.Duration(secs) * time.Second):
 		}
 		fmt.Fprintf(os.Stderr, "boot: handshake still running after %ds; guest threads:\n", secs)
-		for _, ts := range hostabi.GuestThreadsSnapshot() {
-			what := im.CallSiteName(ts.RetPC)
-			if what == "" {
-				what = fmt.Sprintf("image+%#x", hostabi.GuestImageOffset(ts.RetPC))
-			}
-			fmt.Fprintf(os.Stderr, "boot: guest thread %#x last-host=%s depth=%d rbp=%#x\n",
-				ts.Base, what, ts.Depth, ts.RBP)
-			for i, ret := range hostabi.GuestFrameChain(ts.RBP, ts.StackTop, 24) {
-				fmt.Fprintf(os.Stderr, "  guestframe[%d] pc=%#x image+%#x\n",
-					i, ret, hostabi.GuestImageOffset(ret))
-			}
-		}
+		dumpGuestThreads(im, "boot")
 		os.Exit(3)
 	}()
 	return func() { close(done) }
@@ -507,8 +498,13 @@ func javaBootKick(im *loader.Image) (pump func() int) {
 	callArgs("com/roblox/engine/jni/NativeGLInterface", "nativeInitClientSettings",
 		env, cls, hostabi.NewJavaString(clientSettingsJSON()),
 		hostabi.NewJavaString(""), hostabi.NewJavaString("production"))
-	// The post-settings callback requires Android ART ApplicationExitInfo
-	// objects. The settings payload above is sufficient for this host path.
+	// Java follows the settings with the post-settings initialization: it
+	// passes the app's recent ApplicationExitInfo records (none on a fresh
+	// install: an empty java.util.List, see javadata.go), and the engine then
+	// applies the loaded settings to the app-bridge components
+	// (appbridge_adjust_settings). Without it the flags never take effect.
+	callArgs("com/roblox/engine/jni/NativeGLInterface", "nativePostClientSettingsLoadedInitialization3",
+		env, cls, hostabi.NewFakeObject("java/util/List"))
 	callOther("com/roblox/client/startup/MainGameActivity", "nativeSetAssetPath",
 		hostabi.NewJavaString(filepath.Join(rbxrtDataDir(), "assets", "content")))
 	initParams := hostabi.NewFakeObject(classInitArgs)
@@ -679,6 +675,9 @@ func holdForRendering(im *loader.Image, pump func() int) {
 	inits, ctxs, cur, swaps := hostabi.EGLCounts()
 	fmt.Printf("launch: hold over; EGL counts: initialize=%d context=%d makeCurrent=%d swap=%d\n",
 		inits, ctxs, cur, swaps)
+	if os.Getenv("RBXRT_HOLD_DUMP") != "" {
+		dumpGuestThreads(im, "hold")
+	}
 }
 
 // windowFormatRGBA8888 is ANativeWindow_LegacyFormat::WINDOW_FORMAT_RGBA_8888,
@@ -862,18 +861,6 @@ func segmentFlags(f elf.ProgFlag) string {
 	return sb.String()
 }
 
-// clientSettingsJSON is the ClientAppSettings payload handed to
-// nativeInitClientSettings, as the Java app does after fetching it.
-// RBXRT_CLIENT_SETTINGS supplies flag overrides as a JSON object, e.g.
-// {"FLogGraphics":"6"} to turn on an FLog channel; it defaults to none.
-func clientSettingsJSON() string {
-	flags := os.Getenv("RBXRT_CLIENT_SETTINGS")
-	if flags == "" {
-		flags = "{}"
-	}
-	return `{"applicationSettings":` + flags + `}`
-}
-
 // plantBreakpoints writes an int3 at each guest-image offset listed in
 // RBXRT_BREAK (comma-separated hex, e.g. 0x23f07a3), for running under gdb:
 // the process stops there with SIGTRAP and the guest's registers intact. The
@@ -894,5 +881,40 @@ func plantBreakpoints(bias uintptr) {
 			continue
 		}
 		fmt.Fprintf(os.Stderr, "rbxrt: breakpoint at image+%#x (%#x)\n", off, bias+uintptr(off))
+	}
+}
+
+// gdbStop supports breakpoints from gdb on the guest image, whose load address
+// is only known once it is mapped. With RBXRT_GDB_STOP=<file> the bias is
+// written to <file> as hex, then the process raises SIGTRAP once, before any
+// guest code runs: a gdb script reads the file, sets breakpoints at
+// bias+offset, and continues with the signal suppressed. Without a debugger
+// attached the SIGTRAP terminates the process, so use it only under gdb.
+func gdbStop(bias uintptr) {
+	path := os.Getenv("RBXRT_GDB_STOP")
+	if path == "" {
+		return
+	}
+	if err := os.WriteFile(path, []byte(fmt.Sprintf("%#x\n", bias)), 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "rbxrt: RBXRT_GDB_STOP: %v\n", err)
+		return
+	}
+	syscall.Tgkill(os.Getpid(), syscall.Gettid(), syscall.SIGTRAP)
+}
+
+// dumpGuestThreads prints every guest thread's most recent host call and its
+// guest frame chain (image offsets), for finding what a stuck engine waits on.
+func dumpGuestThreads(im *loader.Image, tag string) {
+	for _, ts := range hostabi.GuestThreadsSnapshot() {
+		what := im.CallSiteName(ts.RetPC)
+		if what == "" {
+			what = fmt.Sprintf("image+%#x", hostabi.GuestImageOffset(ts.RetPC))
+		}
+		fmt.Fprintf(os.Stderr, "%s: guest thread %#x last-host=%s depth=%d rbp=%#x\n",
+			tag, ts.Base, what, ts.Depth, ts.RBP)
+		for i, ret := range hostabi.GuestFrameChain(ts.RBP, ts.StackTop, 24) {
+			fmt.Fprintf(os.Stderr, "  guestframe[%d] pc=%#x image+%#x\n",
+				i, ret, hostabi.GuestImageOffset(ret))
+		}
 	}
 }

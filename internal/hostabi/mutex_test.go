@@ -2,6 +2,7 @@ package hostabi
 
 import (
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 	"unsafe"
@@ -143,5 +144,48 @@ func TestCondWaitReleasesRecursiveMutex(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("waiter never woke")
+	}
+}
+
+// A steady_clock wait (CLOCK_MONOTONIC condattr) and a realtime wait must both
+// sleep until their deadline and then report ETIMEDOUT.
+func TestCondTimedwaitHonoursClock(t *testing.T) {
+	for _, clock := range []uintptr{clockMonotonic, clockRealtime} {
+		m, unmapM := pin(t)
+		c, unmapC := pin(t)
+		a, unmapA := pin(t)
+		ts, unmapT := pin(t)
+		goCondattrInit(a)
+		if r := goPthreadCondattrSetclock(a, clock); r != 0 {
+			t.Fatalf("setclock(%d): %d", clock, r)
+		}
+		goCondInit(c, a)
+		goPthreadMutexInit(m, 0)
+
+		var now syscall.Timespec
+		clk := 1 // CLOCK_MONOTONIC
+		if clock == clockRealtime {
+			clk = 0
+		}
+		syscall.Syscall(syscall.SYS_CLOCK_GETTIME, uintptr(clk), uintptr(unsafe.Pointer(&now)), 0)
+		deadline := now.Nano() + int64(80*time.Millisecond)
+		*(*int64)(unsafe.Pointer(ts)) = deadline / 1e9
+		*(*int64)(unsafe.Pointer(ts + 8)) = deadline % 1e9
+
+		goPthreadMutexLock(m)
+		start := time.Now()
+		r := goCondTimedwait(c, m, ts)
+		took := time.Since(start)
+		goPthreadMutexUnlock(m)
+		unmapM()
+		unmapC()
+		unmapA()
+		unmapT()
+		if r != 110 {
+			t.Fatalf("clock %d: timedwait = %d, want ETIMEDOUT", clock, r)
+		}
+		if took < 60*time.Millisecond || took > 2*time.Second {
+			t.Fatalf("clock %d: timedwait returned after %v, want ~80ms", clock, took)
+		}
 	}
 }

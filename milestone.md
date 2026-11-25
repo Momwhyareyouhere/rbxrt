@@ -21,7 +21,7 @@ build in `cmd/rbxrt/profile.go`.
 - [x] 9. EGL initialized on host Mesa: `eglInitialize` / `eglCreateContext` / `eglMakeCurrent` counted > 0
 - [x] 10. Render backend comes up (Mesa zink → Vulkan) and creates a swapchain/surface
 - [x] 11. Engine loads `rbxasset://places/Mobile.rbxl` (place data accepted)
-- [~] 12. First `eglSwapBuffers` with real content
+- [~] 12. First `eglSwapBuffers` with real content (frames presented; no UI drawn yet)
 - [ ] 13. Roblox window launches and shows a rendered frame
 
 ## Milestone 8 (and 9)
@@ -115,22 +115,57 @@ ExtraContent location and working `vsnprintf`/`sscanf`). `RBXRT_DEBUG_FS` now
 also logs each `fread` per descriptor, which is how the byte count above was
 checked.
 
-## Milestone 12 status
+## Milestone 12 status (in progress)
 
-Frames are swapped continuously, and their content is the engine's own clear
-colour (RGB 11,11,11 over the window's black background), not UI yet. The Lua
-app reaches its `Landing` stage, but its screens need network data (HTTPS is
-still failing, below) and nothing is drawn over the clear.
+With the engine's built-in flag defaults, frames are presented continuously
+(~600 per 15 s hold) but carry only the clear colour (RGB 11,11,11): the
+logged-out app shell sends `ACTION_LOG_IN` to the platform, i.e. asks Android
+for its native Java login screen, and draws nothing itself.
+
+The live Android settings (25,662 flags from
+`clientsettingscdn.roblox.com/v2/settings/application/AndroidApp`, fetched with
+`RBXRT_FETCH_SETTINGS=1`) set `FIntLuaAppLoginMethod=1`, under which the Lua app
+draws its own login screen - real UI. They also switch the engine to its newer
+startup path, which does not complete here yet:
+
+- `FFlagSlowDownRendering` starts the render job throttled. On a device the
+  throttle is released by performance control's `AppStartRendering` tunable or
+  by a 10 s safety timer (`RenderThrottleTimeout`), which runs on the task
+  scheduler's `TimerTickerJob`. Neither fires in this runtime: the timer is
+  armed (seen under gdb) but its callback never runs.
+- With the throttle overridden off, the render job steps but reports
+  `stepDataModelJob: No DM yet`: the Lua app's DataModel loads (patch verified,
+  `Mobile.rbxl` read) but is never handed to the render job.
+
+Next: find why `TimerTickerJob` never ticks and what binds the DataModel to the
+render job under the live flags.
+
+Runtime fixes made on the way (all with tests):
+
+- **TLS works.** `qsort`/`bsearch` read the guest comparator's full `%rax`; a
+  comparator returning `-1` in `%eax` looked positive, so OpenSSL's cipher
+  table was never sorted and the server's chosen suite was "unknown"
+  (`set_client_ciphersuite`, found by breaking on `ERR_set_debug` under gdb).
+  Every int-returning guest callback now sign-extends from 32 bits. HTTPS to
+  Roblox now succeeds (e.g. `users.roblox.com` answers 401 "Authentication token
+  is missing" for the logged-out app).
+- **Signals.** `sigaction` wrote glibc's 152-byte struct into bionic's 32-byte
+  one (curl's SIGPIPE save tripped the stack protector); `sigset_t` is 8 bytes
+  on LP64 bionic, not 128. Actions are now recorded per signal.
+- **`sscanf %zu`** (and `%j`, `%t`): the engine's memory sampler reads
+  `/proc/self/statm` with it and failed every 100 ms.
+- **Condition variables honour their clock.** `pthread_condattr_setclock` was
+  ignored, so every `steady_clock` wait used a monotonic deadline as a realtime
+  one and timed out at once; interrupted absolute waits now resume.
+- **`nativePostClientSettingsLoadedInitialization3`** is called after the
+  settings, as Java does (it applies them to the app-bridge components).
+- JNI `ExceptionOccurred` answers "none".
 
 ## Known open issues
 
-- **TLS handshakes fail.** Connections to `apis.roblox.com` get as far as the
-  server's TLS 1.3 ServerHello (x25519, AES-256-GCM), then the engine's OpenSSL
-  answers `illegal_parameter` and closes. The hellos are well-formed, so the
-  failure is inside OpenSSL's key-share processing on this runtime. Boot does
-  not depend on it yet (flags come from the local flag cache and the bundled
-  patch is current), but anything online will.
+- The live-flags startup path (milestone 12 status above).
+- Logging in needs a Roblox session; the runtime does not provide one.
 
-Current focus: milestone 12 — get UI on screen (the Lua app needs network data: fix TLS).
+Current focus: milestone 12 — complete the live-flags startup path so the Lua login screen draws.
 
 Last updated: 2026-11-25

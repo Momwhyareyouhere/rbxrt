@@ -73,3 +73,21 @@ func TestSscanfFloats(t *testing.T) {
 		t.Fatalf("sscanf floats = %d (%v, %v), want 2 (1.5, -2000)", n, f, d)
 	}
 }
+
+// The engine samples its memory with sscanf(statm, "%zu %zu %zu", ...); its
+// performance controller (and the render job's startup throttle) depend on it.
+func TestSscanfSizeTModifier(t *testing.T) {
+	str, unmapS := putCString(t, "1265093 45215 23050 1 0 140588 0")
+	defer unmapS()
+	format, unmapF := putCString(t, "%zu %zu %zu")
+	defer unmapF()
+	out, unmapO := pin(t)
+	defer unmapO()
+	n := goVsscanf(str, format, newVaList(t, out, out+8, out+16))
+	a := *(*uint64)(unsafe.Pointer(out))
+	b := *(*uint64)(unsafe.Pointer(out + 8))
+	c := *(*uint64)(unsafe.Pointer(out + 16))
+	if n != 3 || a != 1265093 || b != 45215 || c != 23050 {
+		t.Fatalf("sscanf %%zu = %d (%d %d %d)", n, a, b, c)
+	}
+}

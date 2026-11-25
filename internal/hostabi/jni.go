@@ -41,6 +41,7 @@ const jniVersion16 = 0x00010006
 const (
 	jniGetVersion              = 4
 	jniFindClass               = 6
+	jniExceptionOccurred       = 15
 	jniExceptionClear          = 17
 	jniNewGlobalRef            = 21
 	jniDeleteGlobalRef         = 22
@@ -477,7 +478,7 @@ func jniEnvFn(id, env, a1, a2, a3, a4, a5 uintptr) uintptr {
 		return jniVersion16
 	case jniFindClass:
 		return jniFindClassHandle(cstr(a1))
-	case jniExceptionClear, jniExceptionCheck:
+	case jniExceptionOccurred, jniExceptionClear, jniExceptionCheck:
 		return 0
 	case jniNewGlobalRef, jniNewLocalRef, jniNewWeakGlobalRef:
 		return a1

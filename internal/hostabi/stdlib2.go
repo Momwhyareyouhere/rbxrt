@@ -46,7 +46,7 @@ func goQsort(base, nmemb, size, compar uintptr) {
 		var j uintptr = i
 		for j > 0 {
 			b := elemAt(base, j-1, size)
-			if CallGuestInt3(compar, a, b, 0) >= 0 {
+			if callGuestCInt(compar, a, b, 0) >= 0 {
 				break
 			}
 			// swap a and b
@@ -77,7 +77,7 @@ func goBsearch(key, base, nmemb, size, compar uintptr) uintptr {
 	for lo < hi {
 		mid := lo + (hi-lo)/2
 		p := elemAt(base, mid, size)
-		c := CallGuestInt3(compar, key, p, 0)
+		c := callGuestCInt(compar, key, p, 0)
 		switch {
 		case c < 0:
 			hi = mid

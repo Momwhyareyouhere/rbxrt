@@ -301,8 +301,25 @@ func goPthreadDetach(threadp uintptr) int {
 //go:noinline
 func goCondInit(cond, attr uintptr) int {
 	*futexWord(cond) = 0
+	clock := uint32(clockRealtime)
+	if attr != 0 {
+		clock = uint32(*(*int64)(unsafe.Pointer(attr)))
+	}
+	*condClock(cond) = clock
 	return 0
 }
+
+// A condition variable's timed waits use the clock its attributes chose
+// (pthread_condattr_setclock); C++ steady_clock waits ask for CLOCK_MONOTONIC.
+// The clock id lives in the second word of bionic's 48-byte pthread_cond_t,
+// so PTHREAD_COND_INITIALIZER (all zeros) keeps bionic's default, REALTIME.
+// pthread_condattr_t is bionic's long; this runtime stores the clock id in it.
+const (
+	clockRealtime  = 0
+	clockMonotonic = 1
+)
+
+func condClock(cond uintptr) *uint32 { return (*uint32)(unsafe.Pointer(cond + 4)) }
 
 //go:noinline
 func goCondDestroy(cond uintptr) int { return 0 }
@@ -338,7 +355,23 @@ func goCondTimedwait(cond, mutex, abstime uintptr) int {
 	if abstime == 0 {
 		e = futexDo(cond, futexOpWait, uintptr(v), 0)
 	} else {
-		e = futexDo(cond, futexOpWaitBitset|futexClockRealtime, uintptr(v), abstime)
+		// FUTEX_WAIT_BITSET takes an absolute deadline on CLOCK_MONOTONIC
+		// unless FUTEX_CLOCK_REALTIME is given. Reading a monotonic deadline
+		// as realtime put it decades in the past, so every steady_clock wait
+		// timed out at once and the engine's timers never ran as scheduled.
+		op := uintptr(futexOpWaitBitset)
+		if *condClock(cond) != clockMonotonic {
+			op |= futexClockRealtime
+		}
+		// The deadline is absolute, so a wait interrupted by a signal (the
+		// Go runtime preempts threads with SIGURG) simply resumes, unless the
+		// condition was signalled meanwhile.
+		for {
+			e = futexDo(cond, op, uintptr(v), abstime)
+			if e != syscall.EINTR || atomic.LoadUint32(futexWord(cond)) != v {
+				break
+			}
+		}
 	}
 	mutexRelockAfterWait(mutex, depth)
 	if e == syscall.ETIMEDOUT {
@@ -371,8 +404,11 @@ func futexDo(uaddr, op, val, timeout uintptr) syscall.Errno {
 }
 
 //go:noinline
-func goCondattrInit(cond, attr uintptr) int { return 0 }
-func goCondattrDestroy(attr uintptr) int    { return 0 }
+func goCondattrInit(attr uintptr) int {
+	*(*int64)(unsafe.Pointer(attr)) = clockRealtime
+	return 0
+}
+func goCondattrDestroy(attr uintptr) int { return 0 }
 
 // --- math decomposers ----------------------------------------------------
 

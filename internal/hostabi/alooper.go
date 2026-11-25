@@ -334,7 +334,7 @@ func goALooperPollOnce(timeoutMillis, outFd, outEvents, outData uintptr) int {
 				fmt.Fprintf(os.Stderr, "rbxrt: ALooper callback fd=%d ident=%d events=%#x cb=%#x\n",
 					c.fd, c.req.ident, c.events, c.req.callback)
 			}
-			if CallGuestInt3(c.req.callback, uintptr(c.fd), uintptr(c.events), c.req.data) == 0 {
+			if callGuestCInt(c.req.callback, uintptr(c.fd), uintptr(c.events), c.req.data) == 0 {
 				goALooperRemoveFd(h, uintptr(c.fd))
 			}
 		}

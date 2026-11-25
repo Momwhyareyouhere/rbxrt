@@ -707,17 +707,57 @@ func goTimerfdSettime(fd, flags, newval, oldval uintptr) int {
 // still terminate the process, so this is not a silent lie for those. Asychronous
 // delivery is future work and is documented as such.
 
+// Signals use bionic's LP64 layouts: sigset_t is a single 64-bit word, and
+//
+//	struct sigaction { int sa_flags; sighandler_t sa_handler;
+//	                   sigset_t sa_mask; void (*sa_restorer)(void); }  // 32 bytes
+//
+// (curl, for one, sets the handler at +8 and clears SA_SIGINFO at +0). The
+// glibc sizes used before (152-byte sigaction, 128-byte sigset_t) overran the
+// guest's stack buffers. No handler is installed on the host - the Go runtime
+// owns the process's signal handling - but each signal's action is recorded,
+// so oldact and signal()'s result report what the guest last set, as libc
+// does.
+const (
+	bionicSigactionSize = 32
+	bionicSigsetSize    = 8
+	bionicNSIG          = 65 // signals 1..64
+)
+
+var (
+	sigMu      sync.Mutex
+	sigActions [bionicNSIG][bionicSigactionSize]byte
+)
+
 //go:noinline
 func goSignal(sig, handler uintptr) uintptr {
-	return 0
+	if sig == 0 || sig >= bionicNSIG {
+		setErrno(errEINVAL)
+		return ^uintptr(0) // SIG_ERR
+	}
+	sigMu.Lock()
+	defer sigMu.Unlock()
+	a := &sigActions[sig]
+	old := *(*uintptr)(unsafe.Pointer(&a[8]))
+	*a = [bionicSigactionSize]byte{}
+	*(*uintptr)(unsafe.Pointer(&a[8])) = handler
+	return old
 }
 
 //go:noinline
 func goSigaction(sig, act, oldact uintptr) int {
+	if sig == 0 || sig >= bionicNSIG {
+		setErrno(errEINVAL)
+		return -1
+	}
+	sigMu.Lock()
+	defer sigMu.Unlock()
+	a := &sigActions[sig]
 	if oldact != 0 {
-		for i := uintptr(0); i < 152; i += 8 {
-			st64(oldact+i, 0)
-		}
+		copy(unsafe.Slice((*byte)(unsafe.Pointer(oldact)), bionicSigactionSize), a[:])
+	}
+	if act != 0 {
+		copy(a[:], unsafe.Slice((*byte)(unsafe.Pointer(act)), bionicSigactionSize))
 	}
 	return 0
 }
@@ -732,29 +772,28 @@ func goSigaltstack(ss, old uintptr) int {
 	return 0
 }
 
-// sigemptyset / sigfillset operate on bionic's 1024-bit sigset_t.
+// sigemptyset / sigfillset / sigismember operate on bionic's LP64 sigset_t,
+// one 64-bit word (signals 1..64).
 //
 //go:noinline
 func goSigemptyset(set uintptr) int {
-	for i := uintptr(0); i < 128; i += 8 {
-		st64(set+i, 0)
-	}
+	st64(set, 0)
 	return 0
 }
 
 //go:noinline
 func goSigfillset(set uintptr) int {
-	for i := uintptr(0); i < 128; i += 8 {
-		st64(set+i, ^uint64(0))
-	}
+	st64(set, ^uint64(0))
 	return 0
 }
 
 //go:noinline
 func goSigismember(set, sig uintptr) int {
-	w := (sig - 1) / 64
-	b := (sig - 1) % 64
-	if *(*uint64)(unsafe.Pointer(set + w*8))&(1<<b) != 0 {
+	if sig == 0 || sig >= bionicNSIG {
+		setErrno(errEINVAL)
+		return -1
+	}
+	if *(*uint64)(unsafe.Pointer(set))&(1<<(sig-1)) != 0 {
 		return 1
 	}
 	return 0
@@ -780,7 +819,13 @@ func goPthreadAttrGetstack(attr, stackaddr, stacksize uintptr) int {
 func goPthreadAttrSetschedparam(attr, param uintptr) int { return 0 }
 
 //go:noinline
-func goPthreadCondattrSetclock(attr, clock uintptr) int { return 0 }
+func goPthreadCondattrSetclock(attr, clock uintptr) int {
+	if clock != clockRealtime && clock != clockMonotonic {
+		return errEINVAL
+	}
+	*(*int64)(unsafe.Pointer(attr)) = int64(clock)
+	return 0
+}
 
 //go:noinline
 func goPthreadGetschedparam(thread, policy, param uintptr) int {
