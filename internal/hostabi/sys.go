@@ -22,6 +22,15 @@ func exitNow(code int) { os.Exit(code) }
 // behaviour.
 var guestBias uintptr
 
+// legacyDiagOffsets enables the few diagnostics that read fixed addresses of
+// the Roblox 2.734.0.917 image (dumpCtx and the thread-callback dump). On any
+// other build those addresses hold unrelated data, so they stay off unless the
+// build profile says the image is that build.
+var legacyDiagOffsets bool
+
+// SetLegacyDiagOffsets turns on the 2.734.0.917-specific diagnostics.
+func SetLegacyDiagOffsets(on bool) { legacyDiagOffsets = on }
+
 // SetGuestBias records the primary guest image's load bias for diagnostics.
 // The loader calls this before any guest code runs.
 func SetGuestBias(b uintptr) { guestBias = b }
@@ -29,6 +38,9 @@ func SetGuestBias(b uintptr) { guestBias = b }
 // PatchGuest overwrites bytes in the guest image. It exists only for
 // instrumentation experiments (the text segment is mapped read-only); it
 // temporarily makes the containing pages writable and restores RX afterwards.
+//
+// Prefer PatchGuestChecked: PatchGuest writes unconditionally, so an offset
+// taken from a different engine build silently corrupts unrelated code.
 func PatchGuest(addr uintptr, b []byte) error {
 	const pageSize = 0x1000
 	start := addr &^ uintptr(pageSize-1)
@@ -188,8 +200,12 @@ func goTrap(namePtr uintptr) {
 			n++
 		}
 		rawSysNoEnter(1, 2, namePtr, n)
+		nl := byte('\n')
+		rawSysNoEnter(1, 2, uintptr(unsafe.Pointer(&nl)), 1)
 	}
-	rawSysNoEnter(60, 70, 0, 0)
+	// exit_group, not exit: SYS_exit (60) ends only the calling thread, which
+	// left the rest of the engine waiting forever on work that thread owned.
+	rawSysNoEnter(231, 70, 0, 0)
 	for {
 	}
 }
@@ -387,7 +403,15 @@ func goAndroidLogBufWrite(bufID, prio, tag, msg uintptr) int {
 }
 
 func writeLog(tag, msg string) {
-	line := []byte("rbxrt: [" + tag + "] " + msg + "\n")
+	writeStderrRaw("rbxrt: [" + tag + "] " + msg + "\n")
+}
+
+// writeStderrRaw writes s to fd 2 with a raw syscall. Host functions called
+// from guest code run on the guest stack, where a Go syscall (os.Stderr, fmt.
+// Fprint to a file) aborts with "entersyscall inconsistent sp"; diagnostics on
+// those paths must come through here.
+func writeStderrRaw(s string) {
+	line := []byte(s)
 	for len(line) != 0 {
 		n := rawSysNoEnter(1, 2, uintptr(unsafe.Pointer(&line[0])), uintptr(len(line)))
 		if int64(n) <= 0 {
@@ -549,6 +573,7 @@ func goClockGettime(clockid, tp uintptr) int {
 	// this callback runs on a guest-provided stack.
 	r := rawSysNoEnter(228, clockid, tp, 0)
 	if int64(r) < 0 {
+		setErrno(int32(-int64(r)))
 		return -1
 	}
 	return int(r)
@@ -571,6 +596,7 @@ func goNanosleep(req, rem uintptr) int {
 func goMmap(addr, length, prot, flags, fd, off uintptr) uintptr {
 	p := rawSysNoEnter6(9, addr, length, prot, flags, fd, off)
 	if int64(p) < 0 {
+		setErrno(int32(-int64(p)))
 		return ^uintptr(0) // MAP_FAILED
 	}
 	return p
@@ -580,6 +606,7 @@ func goMmap(addr, length, prot, flags, fd, off uintptr) uintptr {
 //go:nosplit
 func goMunmap(addr, length uintptr) int {
 	if r := rawSysNoEnter6(11, addr, length, 0, 0, 0, 0); int64(r) < 0 {
+		setErrno(int32(-int64(r)))
 		return -1
 	}
 	return 0
@@ -589,6 +616,7 @@ func goMunmap(addr, length uintptr) int {
 //go:nosplit
 func goMprotect(addr, length, prot uintptr) int {
 	if r := rawSysNoEnter6(10, addr, length, prot, 0, 0, 0); int64(r) < 0 {
+		setErrno(int32(-int64(r)))
 		return -1
 	}
 	return 0
@@ -599,6 +627,7 @@ func goMprotect(addr, length, prot uintptr) int {
 func goMadvise(addr, length, advice uintptr) int {
 	r := rawSysNoEnter(28, addr, length, advice)
 	if int64(r) < 0 {
+		setErrno(int32(-int64(r)))
 		return -1
 	}
 	return 0
@@ -609,11 +638,11 @@ func goMadvise(addr, length, advice uintptr) int {
 //go:noinline
 //go:nosplit
 func goOpen(path, flags, mode uintptr) int {
-	fd := rawSysNoEnter(2, path, flags, mode)
-	if int64(fd) < 0 {
-		return -1
+	r := sysRet(rawSysNoEnter(2, path, flags, mode))
+	if debugFS {
+		traceFS("open", path, r)
 	}
-	return int(fd)
+	return r
 }
 
 var debugAssetFiles = os.Getenv("RBXRT_DEBUG_ASSET_FILES") != ""
@@ -639,20 +668,29 @@ func debugAssetFileOpen(op string, path, result uintptr) {
 //go:noinline
 //go:nosplit
 func goClose(fd uintptr) int {
-	if r := rawSysNoEnter(3, fd, 0, 0); int64(r) < 0 {
-		return -1
+	r := sysRet(rawSysNoEnter(3, fd, 0, 0))
+	if isNetFD(fd) {
+		traceNet("close", fd, r, "")
+		netFDs.Delete(fd)
 	}
-	return 0
+	return r
 }
 
 //go:noinline
 func goRead(fd, buf, n uintptr) int {
 	r := rawSysNoEnter(0, fd, buf, n)
 	if int64(r) < 0 {
+		setErrno(int32(-int64(r)))
 		tracePipeIO("read", fd, buf, n, -1)
+		if debugNet && isNetFD(fd) {
+			traceNet("read", fd, -1, fmt.Sprintf(", n=%d", n))
+		}
 		return -1
 	}
 	tracePipeIO("read", fd, buf, n, int(r))
+	if debugNet && isNetFD(fd) {
+		traceNet("read", fd, int(r), fmt.Sprintf(", n=%d", n))
+	}
 	return int(r)
 }
 
@@ -660,10 +698,17 @@ func goRead(fd, buf, n uintptr) int {
 func goWrite(fd, buf, n uintptr) int {
 	r := rawSysNoEnter(1, fd, buf, n)
 	if int64(r) < 0 {
+		setErrno(int32(-int64(r)))
 		tracePipeIO("write", fd, buf, n, -1)
+		if debugNet && isNetFD(fd) {
+			traceNet("write", fd, -1, fmt.Sprintf(", n=%d", n))
+		}
 		return -1
 	}
 	tracePipeIO("write", fd, buf, n, int(r))
+	if debugNet && isNetFD(fd) {
+		traceNet("write", fd, int(r), fmt.Sprintf(", n=%d", n))
+	}
 	return int(r)
 }
 
@@ -690,6 +735,7 @@ func tracePipeIO(op string, fd, buf, n uintptr, r int) {
 func goPread(fd, buf, n, off uintptr) int {
 	r := rawSysNoEnter6(17, fd, buf, n, off, 0, 0)
 	if int64(r) < 0 {
+		setErrno(int32(-int64(r)))
 		return -1
 	}
 	return int(r)
@@ -699,6 +745,7 @@ func goPread(fd, buf, n, off uintptr) int {
 func goPwrite(fd, buf, n, off uintptr) int {
 	r := rawSysNoEnter6(18, fd, buf, n, off, 0, 0)
 	if int64(r) < 0 {
+		setErrno(int32(-int64(r)))
 		return -1
 	}
 	return int(r)
@@ -708,6 +755,7 @@ func goPwrite(fd, buf, n, off uintptr) int {
 func goLseek(fd, off, whence uintptr) int64 {
 	r := rawSysNoEnter(8, fd, off, whence)
 	if int64(r) < 0 {
+		setErrno(int32(-int64(r)))
 		return -1
 	}
 	return int64(r)
@@ -715,16 +763,18 @@ func goLseek(fd, off, whence uintptr) int64 {
 
 //go:noinline
 func goAccess(path, mode uintptr) int {
-	if r := rawSysNoEnter(21, path, mode, 0); int64(r) < 0 {
-		return -1
+	r := sysRet(rawSysNoEnter(21, path, mode, 0))
+	if debugFS {
+		traceFS("access", path, r)
 	}
-	return 0
+	return r
 }
 
 //go:noinline
 func goFcntl(fd, cmd, arg uintptr) int {
 	r := rawSysNoEnter(72, fd, cmd, arg)
 	if int64(r) < 0 {
+		setErrno(int32(-int64(r)))
 		return -1
 	}
 	return int(r)
@@ -734,6 +784,7 @@ func goFcntl(fd, cmd, arg uintptr) int {
 func goGetcwd(buf, size uintptr) uintptr {
 	r := rawSysNoEnter(79, buf, size, 0)
 	if int64(r) < 0 {
+		setErrno(int32(-int64(r)))
 		return 0
 	}
 	return buf
@@ -742,6 +793,7 @@ func goGetcwd(buf, size uintptr) uintptr {
 //go:noinline
 func goMkdir(path, mode uintptr) int {
 	if r := rawSysNoEnter(83, path, mode, 0); int64(r) < 0 {
+		setErrno(int32(-int64(r)))
 		return -1
 	}
 	return 0
@@ -750,6 +802,7 @@ func goMkdir(path, mode uintptr) int {
 //go:noinline
 func goRmdir(path uintptr) int {
 	if r := rawSysNoEnter(84, path, 0, 0); int64(r) < 0 {
+		setErrno(int32(-int64(r)))
 		return -1
 	}
 	return 0
@@ -758,58 +811,200 @@ func goRmdir(path uintptr) int {
 //go:noinline
 func goUnlink(path uintptr) int {
 	if r := rawSysNoEnter(87, path, 0, 0); int64(r) < 0 {
+		setErrno(int32(-int64(r)))
 		return -1
 	}
 	return 0
 }
 
-// --- pthread (single-threaded semantics) ---------------------------------
+// --- pthread mutexes -----------------------------------------------------
+//
+// Guest threads are real OS threads (goroutines), and the engine and its
+// third-party libraries (FMOD in particular) rely on recursive mutexes, so the
+// mutex follows bionic's semantics inside bionic's 40-byte pthread_mutex_t:
+//
+//	+0  uint32  bits 14-15: type (0 normal, 1 recursive, 2 errorcheck), as
+//	            bionic encodes it, so its static initializers work unchanged
+//	            (PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP is 0x4000);
+//	            bits 0-1: lock state 0 free, 1 locked, 2 locked with waiters
+//	+8  uint64  owner (the guest thread's goroutine), for recursive/errorcheck
+//	+16 uint32  recursion depth beyond the first lock
+//
+// The lock word is a futex (Drepper's three-state mutex), so waiters sleep in
+// the kernel instead of spinning. pthread_mutexattr_t is bionic's long; it
+// holds the type.
 
-// The runtime currently runs guest code on one thread, so mutexes are simple
-// atomic spinlocks over the guest's pthread_mutex_t storage. This is correct
-// for uncontended use and degrades to yielding under contention. Full thread
-// support (pthread_create running guest code) is not implemented.
+const (
+	mutexStateMask = 3
+	mutexTypeShift = 14
+	mutexTypeMask  = 3 << mutexTypeShift
+
+	mutexNormal     = 0
+	mutexRecursive  = 1
+	mutexErrorcheck = 2
+
+	errEPERM   = 1
+	errEBUSY   = 16
+	errEINVAL  = 22
+	errEDEADLK = 35
+)
+
+func mutexWord(m uintptr) *uint32   { return (*uint32)(unsafe.Pointer(m)) }
+func mutexOwner(m uintptr) *uintptr { return (*uintptr)(unsafe.Pointer(m + 8)) }
+func mutexCount(m uintptr) *uint32  { return (*uint32)(unsafe.Pointer(m + 16)) }
+func mutexType(m uintptr) uint32 {
+	return (atomic.LoadUint32(mutexWord(m)) & mutexTypeMask) >> mutexTypeShift
+}
+func mutexSetState(m uintptr, st uint32) (old uint32) {
+	p := mutexWord(m)
+	for {
+		v := atomic.LoadUint32(p)
+		if atomic.CompareAndSwapUint32(p, v, v&^mutexStateMask|st) {
+			return v & mutexStateMask
+		}
+	}
+}
+
+// mutexAcquire takes the lock word, sleeping on the futex while it is held.
+func mutexAcquire(m uintptr) {
+	p := mutexWord(m)
+	tb := atomic.LoadUint32(p) &^ mutexStateMask
+	if atomic.CompareAndSwapUint32(p, tb, tb|1) {
+		return
+	}
+	for mutexSetState(m, 2) != 0 {
+		futexDo(m, futexOpWait|futexPrivate, uintptr(tb|2), 0)
+	}
+}
+
+// mutexTryAcquire takes the lock word only if it is free.
+func mutexTryAcquire(m uintptr) bool {
+	p := mutexWord(m)
+	tb := atomic.LoadUint32(p) &^ mutexStateMask
+	return atomic.CompareAndSwapUint32(p, tb, tb|1)
+}
+
+// mutexRelease frees the lock word and wakes one waiter if there are any.
+func mutexRelease(m uintptr) {
+	if mutexSetState(m, 0) == 2 {
+		futexDo(m, futexOpWake|futexPrivate, 1, 0)
+	}
+}
 
 //go:noinline
 func goPthreadMutexInit(m, attr uintptr) int {
-	*(*uint32)(unsafe.Pointer(m)) = 0
+	typ := uint32(mutexNormal)
+	if attr != 0 {
+		typ = uint32(*(*int64)(unsafe.Pointer(attr))) & 3
+	}
+	*mutexWord(m) = typ << mutexTypeShift
+	*mutexOwner(m) = 0
+	*mutexCount(m) = 0
 	return 0
 }
 
 //go:noinline
 func goPthreadMutexLock(m uintptr) int {
-	p := (*uint32)(unsafe.Pointer(m))
-	for !atomic.CompareAndSwapUint32(p, 0, 1) {
-		runtime.Gosched()
+	if t := mutexType(m); t != mutexNormal {
+		self := getg()
+		if *mutexOwner(m) == self {
+			if t == mutexErrorcheck {
+				return errEDEADLK
+			}
+			*mutexCount(m)++
+			return 0
+		}
+		mutexAcquire(m)
+		*mutexOwner(m) = self
+		*mutexCount(m) = 0
+		return 0
 	}
+	mutexAcquire(m)
 	return 0
 }
 
 //go:noinline
 func goPthreadMutexTrylock(m uintptr) int {
-	if atomic.CompareAndSwapUint32((*uint32)(unsafe.Pointer(m)), 0, 1) {
+	if t := mutexType(m); t != mutexNormal {
+		self := getg()
+		if *mutexOwner(m) == self {
+			if t == mutexErrorcheck {
+				return errEBUSY
+			}
+			*mutexCount(m)++
+			return 0
+		}
+		if !mutexTryAcquire(m) {
+			return errEBUSY
+		}
+		*mutexOwner(m) = self
+		*mutexCount(m) = 0
 		return 0
 	}
-	return 16 // EBUSY
+	if mutexTryAcquire(m) {
+		return 0
+	}
+	return errEBUSY
 }
 
 //go:noinline
 func goPthreadMutexUnlock(m uintptr) int {
-	atomic.StoreUint32((*uint32)(unsafe.Pointer(m)), 0)
+	if t := mutexType(m); t != mutexNormal {
+		if *mutexOwner(m) != getg() {
+			return errEPERM
+		}
+		if *mutexCount(m) > 0 {
+			*mutexCount(m)--
+			return 0
+		}
+		*mutexOwner(m) = 0
+	}
+	mutexRelease(m)
 	return 0
+}
+
+// mutexUnlockForWait fully releases m for a condition wait, whatever its
+// recursion depth, and returns the depth so mutexRelockAfterWait can restore
+// it (POSIX: the wait releases the mutex, not one level of it).
+func mutexUnlockForWait(m uintptr) uint32 {
+	var depth uint32
+	if mutexType(m) != mutexNormal {
+		depth = *mutexCount(m)
+		*mutexCount(m) = 0
+		*mutexOwner(m) = 0
+	}
+	mutexRelease(m)
+	return depth
+}
+
+func mutexRelockAfterWait(m uintptr, depth uint32) {
+	mutexAcquire(m)
+	if mutexType(m) != mutexNormal {
+		*mutexOwner(m) = getg()
+		*mutexCount(m) = depth
+	}
 }
 
 //go:noinline
 func goPthreadMutexDestroy(m uintptr) int { return 0 }
 
 //go:noinline
-func goPthreadMutexattrInit(a uintptr) int { return 0 }
+func goPthreadMutexattrInit(a uintptr) int {
+	*(*int64)(unsafe.Pointer(a)) = mutexNormal
+	return 0
+}
 
 //go:noinline
 func goPthreadMutexattrDestroy(a uintptr) int { return 0 }
 
 //go:noinline
-func goPthreadMutexattrSettype(a, t uintptr) int { return 0 }
+func goPthreadMutexattrSettype(a, t uintptr) int {
+	if t > mutexErrorcheck {
+		return errEINVAL
+	}
+	*(*int64)(unsafe.Pointer(a)) = int64(t)
+	return 0
+}
 
 //go:noinline
 //go:nosplit
@@ -1092,7 +1287,7 @@ func walkGuestFrames(max int) {
 	for i := 0; i < max && rbp != 0; i++ {
 		next := *(*uintptr)(unsafe.Pointer(rbp))
 		ret := *(*uintptr)(unsafe.Pointer(rbp + 8))
-		fmt.Fprintf(os.Stderr, "  guestframe[%d] rbp=%#x ret=%#x (+%#x)\n", i, rbp, ret, ret-guestBias)
+		writeStderrRaw(fmt.Sprintf("  guestframe[%d] rbp=%#x ret=%#x (+%#x)\n", i, rbp, ret, ret-guestBias))
 		if next <= rbp {
 			break
 		}
@@ -1106,7 +1301,7 @@ func walkGuestFrames(max int) {
 // +0x720 slot F calls on the "not registered" branch (emutls control
 // 0x72bad08).
 func dumpCtx() {
-	if guestBias == 0 {
+	if guestBias == 0 || !legacyDiagOffsets {
 		return
 	}
 	g := getg()
@@ -1231,8 +1426,10 @@ func goPthreadCreate(threadp, attr, start, arg uintptr) int {
 		if guestBias != 0 && arg >= guestBias {
 			fmt.Fprintf(os.Stderr, "  thread arg struct: [0]=%s [8]=%s [0x10]=%s\n",
 				guestAddr(ld64(arg)), guestAddr(ld64(arg+8)), guestAddr(ld64(arg+0x10)))
-			fmt.Fprintf(os.Stderr, "  thread cbs: [7307ef8]=%s [7307f00]=%s\n",
-				guestAddr(ld64(guestBias+0x7307ef8)), guestAddr(ld64(guestBias+0x7307f00)))
+			if legacyDiagOffsets {
+				fmt.Fprintf(os.Stderr, "  thread cbs: [7307ef8]=%s [7307f00]=%s\n",
+					guestAddr(ld64(guestBias+0x7307ef8)), guestAddr(ld64(guestBias+0x7307f00)))
+			}
 		}
 	}
 	t := &guestThread{done: make(chan struct{})}
@@ -1245,6 +1442,15 @@ func goPthreadCreate(threadp, attr, start, arg uintptr) int {
 		*(*uintptr)(unsafe.Pointer(threadp)) = p
 	}
 	go func() {
+		// A guest thread is an OS thread for its whole life, as a pthread is.
+		// The host libraries it calls keep per-OS-thread state - most visibly
+		// Mesa's current EGL context: eglMakeCurrent on one OS thread and
+		// glGetString on another returns NULL - and Go would otherwise move
+		// the goroutine between OS threads at any scheduling point. The lock is
+		// deliberately never released, so when this goroutine ends Go retires
+		// the OS thread with it (like pthread_exit) instead of reusing a thread
+		// that still has the engine's native state bound to it.
+		runtime.LockOSThread()
 		defer guestThreads.Add(-1)
 		g := getg()
 		t.ret = uintptr(CallGuestInt3(start, arg, 0, 0))
@@ -1356,3 +1562,25 @@ func goSemPost(sem uintptr) int {
 
 //go:noinline
 func goSemDestroy(sem uintptr) int { return 0 }
+
+// GuestBytes returns a copy of n bytes of guest memory at addr.
+func GuestBytes(addr uintptr, n int) []byte {
+	out := make([]byte, n)
+	copy(out, unsafe.Slice((*byte)(unsafe.Pointer(addr)), n))
+	return out
+}
+
+// PatchGuestChecked is PatchGuest guarded by the instruction it replaces:
+// check receives the current bytes at addr (len(b) of them) and returns an
+// error when they are not what the patch was written against. Nothing is
+// written in that case, so an offset from another engine build fails loudly
+// instead of corrupting unrelated code.
+func PatchGuestChecked(addr uintptr, b []byte, check func(cur []byte) error) error {
+	if check != nil {
+		cur := GuestBytes(addr, len(b))
+		if err := check(cur); err != nil {
+			return fmt.Errorf("refusing patch at %s (found % x): %w", guestAddr(addr), cur, err)
+		}
+	}
+	return PatchGuest(addr, b)
+}

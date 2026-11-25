@@ -200,7 +200,19 @@ RBXRT_GFX_TEST=1 go test ./internal/hostabi -run TestGraphicsProbe -v
 On this host it reports the real driver (e.g. `Mesa Intel(R) UHD Graphics`),
 `OpenGL ES 3.2 Mesa`, `EGL 1.5`, and renders one frame into the X11 window.
 
-### Telemetry stop-gap
+### Engine builds
+
+Every guest-image offset the runtime patches belongs to one engine build, so
+offsets live in per-build profiles (`cmd/rbxrt/profile.go`) keyed by the client
+version string the engine embeds (e.g. `2.748.0.1527`); `rbxrt load` prints the
+detected build. Each patch also checks the instruction it replaces (a `call`
+before NOPing it, a `je` before NOPing it) and refuses on a mismatch. An
+unknown build gets no patches at all, with a warning.
+
+The current target, **2.748.0.1527**, boots through `StartAppWithParams` with no
+image patches: the telemetry recursion below does not occur in it.
+
+### Telemetry stop-gap (2.734.0.917 only)
 
 The engine's eight `TelemetryBridge` JNI natives consult a per-thread
 task/telemetry context (`0x2de3c50` reads `ctx2+0x28`) that the engine's
@@ -234,9 +246,26 @@ RBXRT_DEBUG_LOOPER=1 # ALooper prepare/addFd/poll trace
 RBXRT_DEBUG_ASSET=1  # AAssetManager open/lookup and openFileDescriptor trace
 RBXRT_DEBUG_CONFIG=1 # AConfiguration synthesis trace
 RBXRT_DEBUG_GFX=1    # X11 window, EGL display and window-surface mapping trace
+RBXRT_DEBUG_NET=1    # getaddrinfo and socket traffic (=full dumps whole transfers)
+RBXRT_DEBUG_FS=1     # open/fopen/stat/lstat/access by path, with results
 RBXRT_WALK=1         # dump the guest RBP chain at a fatal exit/abort
-RBXRT_PATCH_REG=off  # disable the telemetry stop-gap to reproduce the crash
+RBXRT_PATCH_REG=off  # disable the telemetry stop-gap to reproduce the crash (2.734)
+RBXRT_GOMAXPROCS=<n> # Go P pool size (default 256; see cmd/rbxrt/main.go)
 ```
+
+Boot inputs (`--launch`):
+
+```
+RBXRT_BOOT=1                # play the Java side: flags, settings, app bridge
+RBXRT_DATA=<dir>            # app data directory; becomes the engine's cwd
+RBXRT_BOOT_WATCHDOG=<secs>  # report stuck guest threads after this long (30)
+```
+
+With `RBXRT_BOOT` the data directory is prepared from the APK (`assets/content`,
+`assets/android`, `assets/ExtraContent`, and `exe/cacert.pem` from the APK's
+`assets/ssl/cacert.pem`) and becomes the working directory before any guest code
+runs, so the engine's `cache/`, `http/` and `appData/` stay out of the directory
+rbxrt was started from.
 
 Graphics inputs:
 

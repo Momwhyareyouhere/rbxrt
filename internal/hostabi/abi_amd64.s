@@ -1,5 +1,53 @@
 #include "textflag.h"
 
+// HOSTCALL(target) calls the Go function whose ABIInternal entry is stored in
+// the variable target, with its arguments already in AX/BX/CX and g in R14,
+// and with SP 8 (mod 16). It is the assembly twin of thunkCallTail (thunk.go):
+// when SP is outside [g.stack.lo, g.stack.hi) - the engine called in from one
+// of its own fiber stacks - the call runs on the reserved area at the bottom
+// of this thread's guest stack instead, one 4 MiB level per nesting, tracked
+// in the guard slot at lo-40. Clobbers DX, SI, DI, R11, R12, R13; the guest's
+// values of the callee-saved ones must already be pushed. Each function may
+// use it once (its labels are function-scoped).
+#define HOSTCALL(target) \
+	MOVQ 0(R14), R12; \
+	CMPQ SP, R12; \
+	JCS hc_foreign; \
+	CMPQ SP, 8(R14); \
+	JCC hc_foreign; \
+	MOVQ target, R11; \
+	SUBQ $200, SP; \
+	CALL R11; \
+	ADDQ $200, SP; \
+	JMP hc_done; \
+hc_foreign: \
+	MOVQ -40(R12), R13; \
+	MOVQ R13, DX; \
+	TESTQ DX, DX; \
+	JNZ hc_have; \
+	LEAQ 0x2000000(R12), DX; \
+hc_have: \
+	LEAQ -0x400000(DX), SI; \
+	CMPQ SI, R12; \
+	JHI hc_ok; \
+	INT $3; \
+hc_ok: \
+	MOVQ SI, -40(R12); \
+	MOVQ SP, DI; \
+	MOVQ DX, SP; \
+	PUSHQ R13; \
+	PUSHQ DI; \
+	MOVQ target, R11; \
+	SUBQ $208, SP; \
+	CALL R11; \
+	ADDQ $208, SP; \
+	POPQ DI; \
+	POPQ R13; \
+	MOVQ 0(R14), R12; \
+	MOVQ R13, -40(R12); \
+	MOVQ DI, SP; \
+hc_done:
+
 // func callGuestVoid(fn uintptr)
 //
 // Invokes a guest function that takes no arguments and returns nothing (a
@@ -259,10 +307,8 @@ ok5:
 		// Load goVariadic's ABIInternal entry from a Go variable. A direct
 		// symbol reference in assembly would bind to the ABI0 wrapper, whose
 		// stack convention does not match the register arguments we pass.
-		MOVQ ·variadicTarget(SB), R11 // Go arg 3 is already in CX
-		SUBQ $200, SP
-		CALL R11
-		ADDQ $200, SP
+		// Go arg 3 is already in CX.
+		HOSTCALL(·variadicTarget(SB))
 		ADDQ $192, SP
 		POPQ R15
 		POPQ R14
@@ -318,10 +364,7 @@ ok5:
 		MOVQ R9, 40(R11)
 		MOVQ R10, AX // Go arg 1: function id
 		MOVQ R11, BX // Go arg 2: register-save base
-		MOVQ ·jniTarget(SB), R11
-		SUBQ $200, SP
-		CALL R11
-		ADDQ $200, SP
+		HOSTCALL(·jniTarget(SB))
 		ADDQ $64, SP
 		POPQ R15
 		POPQ R14

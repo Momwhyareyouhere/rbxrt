@@ -80,8 +80,11 @@ func ensureDataDir() error {
 		return nil
 	}
 	// Roblox looks up ExtraContent through the filesystem (unlike ordinary
-	// packaged assets, which use AAssetManager). Mirror the APK subtree so these
-	// reads see the actual client resources rather than an empty placeholder.
+	// packaged assets, which use AAssetManager), as <asset folder>/ExtraContent:
+	// the same place it has in the APK's assets/. When that directory exists the
+	// engine adds it as a content root, which is where rbxasset://models/...
+	// resolves the bundled core-script patches (UniversalApp.rbxm); without it
+	// StartApp finds no verified patch and aborts. Mirror the APK subtree there.
 	apkPath := os.Getenv("RBXRT_APK")
 	if apkPath == "" {
 		apkPath = "roblox.apk"
@@ -100,7 +103,7 @@ func ensureDataDir() error {
 		if rel == "" || filepath.IsAbs(rel) || filepath.Clean(rel) != rel || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
 			return fmt.Errorf("unsafe ExtraContent APK path %q", entry)
 		}
-		dst := filepath.Join(rbxrtDataDir(), "ExtraContent", rel)
+		dst := filepath.Join(rbxrtDataDir(), "assets", "ExtraContent", rel)
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return fmt.Errorf("create ExtraContent directory %s: %w", filepath.Dir(dst), err)
 		}
@@ -129,6 +132,21 @@ func ensureDataDir() error {
 		}
 		if err := archive.Extract(entry, dst); err != nil {
 			return fmt.Errorf("extract APK entry %s: %w", entry, err)
+		}
+	}
+	// The engine's OpenSSL loads its trust store from exe/cacert.pem (and
+	// probes exe/ssl/cacert.pem) relative to the working directory, which is
+	// the data directory during a boot. Without it every TLS handshake fails
+	// certificate verification. Use the bundle the signed APK ships.
+	for _, dst := range []string{
+		filepath.Join(rbxrtDataDir(), "exe", "cacert.pem"),
+		filepath.Join(rbxrtDataDir(), "exe", "ssl", "cacert.pem"),
+	} {
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return fmt.Errorf("create CA bundle directory: %w", err)
+		}
+		if err := archive.Extract("assets/ssl/cacert.pem", dst); err != nil {
+			return fmt.Errorf("extract CA bundle: %w", err)
 		}
 	}
 	const androidPrefix = "assets/android/"

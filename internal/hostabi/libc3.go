@@ -115,7 +115,10 @@ func goSyscall(number, a1, a2, a3, a4, a5 uintptr) uintptr {
 				a1, a2, a3, a4, to, a6, int64(r), -int64(r), hostMonotonicNowNanos(1)/1000, n)
 		}
 	}
-	return r
+	// syscall(2) follows the libc convention like every other wrapper: -1 with
+	// errno set, so a timed futex wait reports ETIMEDOUT/EAGAIN/EINTR the way
+	// the engine's wait loops test for it.
+	return uintptr(sysRet(r))
 }
 
 var debugSys = os.Getenv("RBXRT_DEBUG_SYS") != ""
@@ -142,12 +145,12 @@ func putStrZ(dst uintptr, s string) {
 
 //go:noinline
 func goSysinfo(info uintptr) int {
-	return int(int64(rawSys(nSysSysinfo, info, 0, 0)))
+	return sysRet(rawSys(nSysSysinfo, info, 0, 0))
 }
 
 //go:noinline
 func goUname(buf uintptr) int {
-	return int(int64(rawSys(nSysUname, buf, 0, 0)))
+	return sysRet(rawSys(nSysUname, buf, 0, 0))
 }
 
 // system(NULL) reports whether a shell is available; otherwise the command is
@@ -189,24 +192,20 @@ func goSystemPropertyGet(name, value uintptr) int {
 
 //go:noinline
 func goWaitpid(pid, status, options uintptr) int {
-	r := rawSys6(nSysWait4, pid, status, options, 0, 0, 0)
-	return int(int64(r))
+	return sysRet(rawSys6(nSysWait4, pid, status, options, 0, 0, 0))
 }
 
 func goFork() int {
-	r := rawSys(nSysFork, 0, 0, 0)
-	return int(int64(r))
+	return sysRet(rawSys(nSysFork, 0, 0, 0))
 }
 
 func goExecve(path, argv, envp uintptr) int {
-	r := rawSys(nSysExecve, path, argv, envp)
-	return int(int64(r))
+	return sysRet(rawSys(nSysExecve, path, argv, envp))
 }
 
 func goExecv(path, argv uintptr) int {
 	// execv uses the caller's environ.
-	r := rawSys(nSysExecve, path, argv, environVar)
-	return int(int64(r))
+	return sysRet(rawSys(nSysExecve, path, argv, environVar))
 }
 
 // --- scheduling -------------------------------------------------------------
@@ -226,7 +225,7 @@ func goSchedGetcpu(_, _, _ uintptr) int {
 	// the goroutine is executing on the guest stack, which Go's entersyscall
 	// stack validation rejects. The raw assembly syscall does not switch stacks.
 	if r := rawSysNoEnter(nSysGetcpu, uintptr(unsafe.Pointer(&cpu)), 0, 0); r != 0 {
-		return int(int64(r))
+		return sysRet(r)
 	}
 	return int(cpu)
 }
@@ -253,17 +252,23 @@ func goSchedGetparam(pid, param uintptr) int {
 
 //go:noinline
 func goGetpriority(which, who uintptr) int {
-	return int(int64(rawSys(nSysGetpriority, which, who, 0)))
+	// The raw syscall returns 20-nice (1..40) so that it is never negative;
+	// libc converts it back.
+	r := sysRet(rawSys(nSysGetpriority, which, who, 0))
+	if r < 0 {
+		return -1
+	}
+	return 20 - r
 }
 
 //go:noinline
 func goSetpriority(which, who, prio uintptr) int {
-	return int(int64(rawSys(nSysSetpriority, which, who, prio)))
+	return sysRet(rawSys(nSysSetpriority, which, who, prio))
 }
 
 //go:noinline
 func goPrctl(op, a2, a3, a4, a5 uintptr) int {
-	return int(int64(rawSys6(nSysPrctl, op, a2, a3, a4, a5, 0)))
+	return sysRet(rawSys6(nSysPrctl, op, a2, a3, a4, a5, 0))
 }
 
 // ptrace is not supportable: a guest debugging itself through us is out of
@@ -278,25 +283,25 @@ func goPtrace(request, pid, addr, data uintptr) int {
 
 //go:noinline
 func goMlock(addr, length uintptr) int {
-	return int(int64(rawSys(nSysMlock, addr, length, 0)))
+	return sysRet(rawSys(nSysMlock, addr, length, 0))
 }
 
 //go:noinline
 func goMunlock(addr, length uintptr) int {
-	return int(int64(rawSys(nSysMunlock, addr, length, 0)))
+	return sysRet(rawSys(nSysMunlock, addr, length, 0))
 }
 
 //go:noinline
 func goMsync(addr, length, flags uintptr) int {
-	return int(int64(rawSys(nSysMsync, addr, length, flags)))
+	return sysRet(rawSys(nSysMsync, addr, length, flags))
 }
 
 func goFsync(fd uintptr) int {
-	return int(int64(rawSys(nSysFsync, fd, 0, 0)))
+	return sysRet(rawSys(nSysFsync, fd, 0, 0))
 }
 
 func goFdatasync(fd uintptr) int {
-	return int(int64(rawSys(nSysFdatasync, fd, 0, 0)))
+	return sysRet(rawSys(nSysFdatasync, fd, 0, 0))
 }
 
 func goSync() {
@@ -349,17 +354,17 @@ func goPipe2(fds, flags uintptr) int {
 
 //go:noinline
 func goWritev(fd, iov, count uintptr) int {
-	return int(int64(rawSys(nSysWritev, fd, iov, count)))
+	return sysRet(rawSys(nSysWritev, fd, iov, count))
 }
 
 //go:noinline
 func goReadv(fd, iov, count uintptr) int {
-	return int(int64(rawSys(nSysReadv, fd, iov, count)))
+	return sysRet(rawSys(nSysReadv, fd, iov, count))
 }
 
 //go:noinline
 func goIoctl(fd, req, arg uintptr) int {
-	return int(int64(rawSys(nSysIoctl, fd, req, arg)))
+	return sysRet(rawSys(nSysIoctl, fd, req, arg))
 }
 
 // --- random -----------------------------------------------------------------
@@ -540,143 +545,158 @@ const (
 
 //go:noinline
 func goSocket(domain, typ, proto uintptr) int {
-	return int(int64(rawSys(nSysSocket, domain, typ, proto)))
+	r := sysRet(rawSys(nSysSocket, domain, typ, proto))
+	if r >= 0 {
+		netFDs.Store(uintptr(r), struct{}{})
+	}
+	traceNet("socket", 0, r, fmt.Sprintf(", domain=%d type=%#x", domain, typ))
+	return r
 }
 
 //go:noinline
 func goSocketpair(domain, typ, proto, sv uintptr) int {
-	return int(int64(rawSys6(nSysSocketpair, domain, typ, proto, sv, 0, 0)))
+	return sysRet(rawSys6(nSysSocketpair, domain, typ, proto, sv, 0, 0))
 }
 
 //go:noinline
 func goBind(fd, addr, addrlen uintptr) int {
-	return int(int64(rawSys(nSysBind, fd, addr, addrlen)))
+	return sysRet(rawSys(nSysBind, fd, addr, addrlen))
 }
 
 //go:noinline
 func goListen(fd, backlog uintptr) int {
-	return int(int64(rawSys(nSysListen, fd, backlog, 0)))
+	return sysRet(rawSys(nSysListen, fd, backlog, 0))
 }
 
 //go:noinline
 func goAccept(fd, addr, addrlen uintptr) int {
-	return int(int64(rawSys(nSysAccept, fd, addr, addrlen)))
+	return sysRet(rawSys(nSysAccept, fd, addr, addrlen))
 }
 
 //go:noinline
 func goAccept4(fd, addr, addrlen, flags uintptr) int {
-	return int(int64(rawSys6(nSysAccept4, fd, addr, addrlen, flags, 0, 0)))
+	return sysRet(rawSys6(nSysAccept4, fd, addr, addrlen, flags, 0, 0))
 }
 
 //go:noinline
 func goConnect(fd, addr, addrlen uintptr) int {
-	return int(int64(rawSys(nSysConnect, fd, addr, addrlen)))
+	r := sysRet(rawSys(nSysConnect, fd, addr, addrlen))
+	traceNet("connect", fd, r, ", "+sockaddrString(addr, addrlen))
+	return r
 }
 
 //go:noinline
 func goSendto(fd, buf, n, flags, addr, addrlen uintptr) int {
-	return int(int64(rawSys6(nSysSendto, fd, buf, n, flags, addr, addrlen)))
+	r := sysRet(rawSys6(nSysSendto, fd, buf, n, flags, addr, addrlen))
+	traceNet("sendto", fd, r, fmt.Sprintf(", n=%d", n)+netBytes(buf, r))
+	return r
 }
 
 //go:noinline
 func goRecvfrom(fd, buf, n, flags, addr, addrlen uintptr) int {
-	return int(int64(rawSys6(nSysRecvfrom, fd, buf, n, flags, addr, addrlen)))
+	r := sysRet(rawSys6(nSysRecvfrom, fd, buf, n, flags, addr, addrlen))
+	traceNet("recvfrom", fd, r, fmt.Sprintf(", n=%d", n)+netBytes(buf, r))
+	return r
 }
 
 //go:noinline
 func goSendmsg(fd, msg, flags uintptr) int {
-	r := rawSys6(nSysSendmsg, fd, msg, flags, 0, 0, 0)
-	return int(int64(r))
+	r := sysRet(rawSys6(nSysSendmsg, fd, msg, flags, 0, 0, 0))
+	traceNet("sendmsg", fd, r, "")
+	return r
 }
 
 //go:noinline
 func goRecvmsg(fd, msg, flags uintptr) int {
-	r := rawSys6(nSysRecvmsg, fd, msg, flags, 0, 0, 0)
-	return int(int64(r))
+	r := sysRet(rawSys6(nSysRecvmsg, fd, msg, flags, 0, 0, 0))
+	traceNet("recvmsg", fd, r, "")
+	return r
 }
 
 //go:noinline
 func goSendmmsg(fd, msgvec, vlen, flags uintptr) int {
-	return int(int64(rawSys6(nSysSendmmsg, fd, msgvec, vlen, flags, 0, 0)))
+	return sysRet(rawSys6(nSysSendmmsg, fd, msgvec, vlen, flags, 0, 0))
 }
 
 //go:noinline
 func goRecvmmsg(fd, msgvec, vlen, flags, timeout uintptr) int {
-	return int(int64(rawSys6(nSysRecvmmsg, fd, msgvec, vlen, flags, timeout, 0)))
+	return sysRet(rawSys6(nSysRecvmmsg, fd, msgvec, vlen, flags, timeout, 0))
 }
 
 //go:noinline
 func goSetsockopt(fd, level, optname, optval, optlen uintptr) int {
-	return int(int64(rawSys6(nSysSetsockopt, fd, level, optname, optval, optlen, 0)))
+	return sysRet(rawSys6(nSysSetsockopt, fd, level, optname, optval, optlen, 0))
 }
 
 //go:noinline
 func goGetsockopt(fd, level, optname, optval, optlen uintptr) int {
-	return int(int64(rawSys6(nSysGetsockopt, fd, level, optname, optval, optlen, 0)))
+	r := sysRet(rawSys6(nSysGetsockopt, fd, level, optname, optval, optlen, 0))
+	traceNet("getsockopt", fd, r, fmt.Sprintf(", level=%d opt=%d", level, optname))
+	return r
 }
 
 //go:noinline
 func goGetsockname(fd, addr, addrlen uintptr) int {
-	r := rawSys6(nSysGetsockname, fd, addr, addrlen, 0, 0, 0)
-	return int(int64(r))
+	return sysRet(rawSys6(nSysGetsockname, fd, addr, addrlen, 0, 0, 0))
 }
 
 //go:noinline
 func goGetpeername(fd, addr, addrlen uintptr) int {
-	r := rawSys6(nSysGetpeername, fd, addr, addrlen, 0, 0, 0)
-	return int(int64(r))
+	return sysRet(rawSys6(nSysGetpeername, fd, addr, addrlen, 0, 0, 0))
 }
 
 //go:noinline
 func goShutdown(fd, how uintptr) int {
-	return int(int64(rawSys(nSysShutdown, fd, how, 0)))
+	r := sysRet(rawSys(nSysShutdown, fd, how, 0))
+	traceNet("shutdown", fd, r, "")
+	return r
 }
 
 // --- poll / epoll / timers --------------------------------------------------
 
 //go:noinline
 func goPoll(fds, nfds, timeout uintptr) int {
-	return int(int64(rawSys(nSysPoll, fds, nfds, timeout)))
+	return sysRet(rawSys(nSysPoll, fds, nfds, timeout))
 }
 
 //go:noinline
 func goSelect(nfds, r, w, e, timeout uintptr) int {
-	return int(int64(rawSys6(nSysSelect, nfds, r, w, e, timeout, 0)))
+	return sysRet(rawSys6(nSysSelect, nfds, r, w, e, timeout, 0))
 }
 
 //go:noinline
 func goEpollCreate(size uintptr) int {
-	return int(int64(rawSys(nSysEpollCreate, size, 0, 0)))
+	return sysRet(rawSys(nSysEpollCreate, size, 0, 0))
 }
 
 //go:noinline
 func goEpollCreate1(flags uintptr) int {
-	return int(int64(rawSys(nSysEpollCreate1, flags, 0, 0)))
+	return sysRet(rawSys(nSysEpollCreate1, flags, 0, 0))
 }
 
 //go:noinline
 func goEpollCtl(epfd, op, fd, event uintptr) int {
-	return int(int64(rawSys6(nSysEpollCtl, epfd, op, fd, event, 0, 0)))
+	return sysRet(rawSys6(nSysEpollCtl, epfd, op, fd, event, 0, 0))
 }
 
 //go:noinline
 func goEpollWait(epfd, events, maxevents, timeout uintptr) int {
-	return int(int64(rawSys6(nSysEpollWait, epfd, events, maxevents, timeout, 0, 0)))
+	return sysRet(rawSys6(nSysEpollWait, epfd, events, maxevents, timeout, 0, 0))
 }
 
 //go:noinline
 func goEventfd(initval, flags uintptr) int {
-	return int(int64(rawSys(nSysEventfd2, initval, flags, 0)))
+	return sysRet(rawSys(nSysEventfd2, initval, flags, 0))
 }
 
 //go:noinline
 func goTimerfdCreate(clockid, flags uintptr) int {
-	return int(int64(rawSys(nSysTimerfdCreate, clockid, flags, 0)))
+	return sysRet(rawSys(nSysTimerfdCreate, clockid, flags, 0))
 }
 
 //go:noinline
 func goTimerfdSettime(fd, flags, newval, oldval uintptr) int {
-	return int(int64(rawSys6(nSysTimerfdSettime, fd, flags, newval, oldval, 0, 0)))
+	return sysRet(rawSys6(nSysTimerfdSettime, fd, flags, newval, oldval, 0, 0))
 }
 
 // --- signals ----------------------------------------------------------------

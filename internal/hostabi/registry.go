@@ -386,6 +386,10 @@ func Lookup(name string) (addr uintptr, implemented bool) {
 		symCache[name] = d
 		return d, true
 	}
+	if a, ok := rawCodeSymbol(name); ok {
+		symCache[name] = a
+		return a, true
+	}
 	a := trapThunk(name)
 	symCache[name] = a
 	arenaMakeExec()

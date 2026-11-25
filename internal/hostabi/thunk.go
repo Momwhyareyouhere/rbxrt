@@ -85,9 +85,9 @@ const (
 	// aligned (a thunk entry is 8 mod 16).
 	thunkArgArea = 24*8 + 8 // 200
 
-	// A host thunk is ~100 bytes of code plus the argument area it reserves;
-	// 128 keeps them naturally spaced in the arena and leaves room for growth.
-	thunkSize    = 128
+	// A host thunk is ~220 bytes of code (see thunkCallTail); 256 keeps them
+	// naturally spaced in the arena.
+	thunkSize    = 256
 	trapThunkLen = 64
 )
 
@@ -263,35 +263,96 @@ func mkThunk(target uintptr) uintptr {
 	// shims whose C signatures exceed six arguments.
 	copy(b[off:], []byte{0x4C, 0x8B, 0x4C, 0x24, 0x08}) // MOVQ 8(SP), R9
 	off += 5
-	copy(b[off:], movR11Prefix) // MOVQ target, R11
-	off += len(movR11Prefix)
-	put64(b[off:], target)
-	off += 8
-	emitSubAddImm(b[off:], true, thunkArgArea) // SUBQ $thunkArgArea, SP
-	off += 7
-	copy(b[off:], []byte{0x41, 0xFF, 0xD3}) // CALL R11
-	off += 3
-	emitSubAddImm(b[off:], false, thunkArgArea) // ADDQ $thunkArgArea, SP
-	off += 7
-	// Restore the guest's callee-saved registers, in reverse order.
-	copy(b[off:], []byte{0x41, 0x5F}) // POPQ R15
-	off += 2
-	copy(b[off:], []byte{0x41, 0x5E}) // POPQ R14
-	off += 2
-	copy(b[off:], []byte{0x41, 0x5D}) // POPQ R13
-	off += 2
-	copy(b[off:], []byte{0x41, 0x5C}) // POPQ R12
-	off += 2
-	copy(b[off:], []byte{0x5D}) // POPQ RBP
-	off++
-	copy(b[off:], []byte{0x5B}) // POPQ RBX
-	off++
-	if off >= thunkSize {
+	copy(b[off:], thunkCallTail)
+	put64(b[off+thunkTailTarget1:], target)
+	put64(b[off+thunkTailTarget2:], target)
+	off += len(thunkCallTail)
+	if off > thunkSize {
 		panic("hostabi: host thunk overflowed its code buffer")
 	}
-	b[off] = 0xC3 // RET
 	return uintptr(unsafe.Pointer(&b[0]))
 }
+
+// thunkCallTail is the end of every host thunk: it calls the Go target and
+// restores the guest's callee-saved registers. On entry R14 holds g and the
+// arguments are in Go's ABI registers; R10-R13 and R15 are free (the guest's
+// values were pushed).
+//
+// The engine runs much of its work on fibers - stacks it mmaps and switches to
+// itself - so a host call can arrive with SP outside the goroutine's guest
+// stack. The Go runtime validates SP against g.stack whenever it looks
+// (preemption requests, syscalls, tracebacks) and aborts with "split stack
+// overflow" or "entersyscall inconsistent sp" when it is elsewhere. The tail
+// therefore checks SP against [g.stack.lo, g.stack.hi) and, when it is
+// outside, runs the Go call on a reserved area instead: the lowest 32 MiB of
+// this thread's own guest stack, which ordinary guest execution never reaches.
+// The area is handed out in 4 MiB levels, top down, so a host call that calls
+// back into guest code which switches fibers again nests safely; the current
+// level's top lives in the guest-stack guard slot at lo-40 (0 = unused).
+// Exhausting the eight levels traps (int3) rather than overlapping a live
+// frame. Assembled from:
+//
+//		movq    0(%r14), %r11          // g.stack.lo
+//		cmpq    %r11, %rsp
+//		jb      foreign
+//		cmpq    8(%r14), %rsp          // g.stack.hi
+//		jae     foreign
+//		movabsq $target, %r11
+//		subq    $200, %rsp             // thunkArgArea; call site 16-aligned
+//		call    *%r11
+//		addq    $200, %rsp
+//		jmp     done
+//	foreign:
+//		movq    -40(%r11), %r13        // previous level top, 0 if none
+//		movq    %r13, %r10
+//		testq   %r10, %r10
+//		jnz     1f
+//		leaq    0x2000000(%r11), %r10  // lo + 32 MiB
+//	1:	leaq    -0x400000(%r10), %r15  // top for a nested entry
+//		cmpq    %r11, %r15
+//		ja      2f
+//		int3
+//	2:	movq    %r15, -40(%r11)
+//		movq    %rsp, %r12             // the fiber SP
+//		movq    %r10, %rsp
+//		pushq   %r13
+//		pushq   %r12
+//		movabsq $target, %r11
+//		subq    $208, %rsp             // thunkArgArea + 8; call site 16-aligned
+//		call    *%r11
+//		addq    $208, %rsp
+//		popq    %r12
+//		popq    %r13
+//		movq    0(%r14), %r11
+//		movq    %r13, -40(%r11)        // release the level
+//		movq    %r12, %rsp
+//	done:
+//		popq    %r15 / %r14 / %r13 / %r12 / %rbp / %rbx
+//		ret
+var thunkCallTail = []byte{
+	0x4d, 0x8b, 0x1e, 0x4c, 0x39, 0xdc, 0x72, 0x23, 0x49, 0x3b, 0x66, 0x08,
+	0x73, 0x1d, 0x49, 0xbb, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11,
+	0x48, 0x81, 0xec, 0xc8, 0x00, 0x00, 0x00, 0x41, 0xff, 0xd3, 0x48, 0x81,
+	0xc4, 0xc8, 0x00, 0x00, 0x00, 0xeb, 0x57, 0x4d, 0x8b, 0x6b, 0xd8, 0x4d,
+	0x89, 0xea, 0x4d, 0x85, 0xd2, 0x75, 0x07, 0x4d, 0x8d, 0x93, 0x00, 0x00,
+	0x00, 0x02, 0x4d, 0x8d, 0xba, 0x00, 0x00, 0xc0, 0xff, 0x4d, 0x39, 0xdf,
+	0x77, 0x01, 0xcc, 0x4d, 0x89, 0x7b, 0xd8, 0x49, 0x89, 0xe4, 0x4c, 0x89,
+	0xd4, 0x41, 0x55, 0x41, 0x54, 0x49, 0xbb, 0x88, 0x77, 0x66, 0x55, 0x44,
+	0x33, 0x22, 0x11, 0x48, 0x81, 0xec, 0xd0, 0x00, 0x00, 0x00, 0x41, 0xff,
+	0xd3, 0x48, 0x81, 0xc4, 0xd0, 0x00, 0x00, 0x00, 0x41, 0x5c, 0x41, 0x5d,
+	0x4d, 0x8b, 0x1e, 0x4d, 0x89, 0x6b, 0xd8, 0x4c, 0x89, 0xe4, 0x41, 0x5f,
+	0x41, 0x5e, 0x41, 0x5d, 0x41, 0x5c, 0x5d, 0x5b, 0xc3,
+}
+
+// Offsets of the two imm64 call targets inside thunkCallTail.
+const (
+	thunkTailTarget1 = 16
+	thunkTailTarget2 = 91
+)
+
+// guestAltStackSlot is the guard-area slot (lo-40) holding the top of the
+// reserved host-call level in use; see thunkCallTail.
+const guestAltStackSlot = 40
 
 // mkTrapThunk writes a trampoline that reports name as an unimplemented host
 // symbol when it is actually called. namePtr is the address of a NUL-terminated

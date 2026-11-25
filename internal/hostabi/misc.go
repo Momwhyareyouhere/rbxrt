@@ -1,7 +1,9 @@
 package hostabi
 
 import (
+	"fmt"
 	"math"
+	"os"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -29,28 +31,28 @@ func goCopyInto(dst uintptr, src unsafe.Pointer, size uintptr) {
 //go:noinline
 //go:nosplit
 func goStat(path, buf uintptr) int {
-	if r := rawSysNoEnter(4, path, buf, 0); int64(r) < 0 {
-		errnoVar = int32(-int64(r))
-		return -1
+	r := sysRet(rawSysNoEnter(4, path, buf, 0))
+	if debugFS {
+		traceFS("stat", path, r)
 	}
-	return 0
+	return r
 }
 
 //go:noinline
 //go:nosplit
 func goLstat(path, buf uintptr) int {
-	if r := rawSysNoEnter(6, path, buf, 0); int64(r) < 0 {
-		errnoVar = int32(-int64(r))
-		return -1
+	r := sysRet(rawSysNoEnter(6, path, buf, 0))
+	if debugFS {
+		traceFS("lstat", path, r)
 	}
-	return 0
+	return r
 }
 
 //go:noinline
 //go:nosplit
 func goFstat(fd, buf uintptr) int {
 	if r := rawSysNoEnter(5, fd, buf, 0); int64(r) < 0 {
-		errnoVar = int32(-int64(r))
+		setErrno(int32(-int64(r)))
 		return -1
 	}
 	return 0
@@ -60,7 +62,7 @@ func goFstat(fd, buf uintptr) int {
 func goReadlink(path, buf, size uintptr) uintptr {
 	n := rawSysNoEnter(89, path, buf, size)
 	if int64(n) < 0 {
-		errnoVar = int32(-int64(n))
+		setErrno(int32(-int64(n)))
 		return ^uintptr(0)
 	}
 	return n
@@ -69,7 +71,7 @@ func goReadlink(path, buf, size uintptr) uintptr {
 //go:noinline
 func goFtruncate(fd, length uintptr) int {
 	if r := rawSysNoEnter(77, fd, length, 0); int64(r) < 0 {
-		errnoVar = int32(-int64(r))
+		setErrno(int32(-int64(r)))
 		return -1
 	}
 	return 0
@@ -78,7 +80,7 @@ func goFtruncate(fd, length uintptr) int {
 //go:noinline
 func goFchmod(fd, mode uintptr) int {
 	if r := rawSysNoEnter(91, fd, mode, 0); int64(r) < 0 {
-		errnoVar = int32(-int64(r))
+		setErrno(int32(-int64(r)))
 		return -1
 	}
 	return 0
@@ -87,7 +89,7 @@ func goFchmod(fd, mode uintptr) int {
 //go:noinline
 func goFchown(fd, uid, gid uintptr) int {
 	if r := rawSysNoEnter6(93, fd, uid, gid, 0, 0, 0); int64(r) < 0 {
-		errnoVar = int32(-int64(r))
+		setErrno(int32(-int64(r)))
 		return -1
 	}
 	return 0
@@ -96,7 +98,7 @@ func goFchown(fd, uid, gid uintptr) int {
 //go:noinline
 func goRename(oldp, newp uintptr) int {
 	if r := rawSysNoEnter(82, oldp, newp, 0); int64(r) < 0 {
-		errnoVar = int32(-int64(r))
+		setErrno(int32(-int64(r)))
 		return -1
 	}
 	return 0
@@ -108,7 +110,7 @@ func goRemove(path uintptr) int {
 		return 0
 	}
 	if r := rawSysNoEnter(84, path, 0, 0); int64(r) < 0 {
-		errnoVar = int32(-int64(r))
+		setErrno(int32(-int64(r)))
 		return -1
 	}
 	return 0
@@ -120,7 +122,7 @@ func goRemove(path uintptr) int {
 func goMremap(old, oldSize, newSize, flags uintptr) uintptr {
 	r := rawSysNoEnter6(25, old, oldSize, newSize, flags, 0, 0)
 	if int64(r) < 0 {
-		errnoVar = int32(-int64(r))
+		setErrno(int32(-int64(r)))
 		return ^uintptr(0)
 	}
 	return r
@@ -128,12 +130,60 @@ func goMremap(old, oldSize, newSize, flags uintptr) uintptr {
 
 // --- errno ---------------------------------------------------------------
 
-// errnoVar backs bionic's __errno(): a function returning the address of the
-// calling thread's errno. With a single thread a plain variable suffices.
-var errnoVar int32
+// debugFS traces filesystem lookups by path (RBXRT_DEBUG_FS): open, fopen,
+// stat, lstat and access, with the result. It is how an rbxasset:// path that
+// resolves to the wrong place on the host shows up.
+var debugFS = os.Getenv("RBXRT_DEBUG_FS") != ""
+
+func traceFS(op string, path uintptr, r int) {
+	if !debugFS || path == 0 {
+		return
+	}
+	if r < 0 {
+		writeStderrRaw(fmt.Sprintf("rbxrt: fs: %s(%q) -> -1 errno=%d\n", op, cstr(path), *errnoPtr()))
+		return
+	}
+	writeStderrRaw(fmt.Sprintf("rbxrt: fs: %s(%q) -> %d\n", op, cstr(path), r))
+}
+
+// bionic's __errno() returns the address of the *calling thread's* errno. The
+// engine is heavily multithreaded (curl, for one, reads errno right after a
+// non-blocking connect), so a process-wide variable lets one thread's failure
+// clobber another's. Each guest thread keeps its errno in its guest stack's
+// guard area, beside the call-site capture slots (see guestCaptureRetPC):
+// that memory is mapped, private to the thread and stable for its lifetime.
+// Code running before any guest stack exists falls back to errnoFallback.
+const guestErrnoSlot = 32 // int32 at base - 32
+
+var errnoFallback int32
+
+func errnoPtr() *int32 {
+	g := getg()
+	gsMu.Lock()
+	gs := gsMap[g]
+	gsMu.Unlock()
+	if gs == nil || gs.base == 0 {
+		return &errnoFallback
+	}
+	return (*int32)(unsafe.Pointer(gs.base - guestErrnoSlot))
+}
+
+// setErrno stores e in the calling guest thread's errno.
+func setErrno(e int32) { *errnoPtr() = e }
+
+// sysRet converts a raw Linux syscall result into the libc convention the
+// engine expects: -1 with errno set on failure (the kernel returns -errno in
+// the range [-4095, -1]), the result unchanged otherwise.
+func sysRet(r uintptr) int {
+	if v := int64(r); v < 0 && v > -4096 {
+		setErrno(int32(-v))
+		return -1
+	}
+	return int(r)
+}
 
 //go:noinline
-func goErrnoAddr() uintptr { return uintptr(unsafe.Pointer(&errnoVar)) }
+func goErrnoAddr() uintptr { return uintptr(unsafe.Pointer(errnoPtr())) }
 
 //go:noinline
 func goStrerror(err uintptr) uintptr {
@@ -268,23 +318,23 @@ func goCondBroadcast(cond uintptr) int {
 //go:noinline
 func goCondWait(cond, mutex uintptr) int {
 	v := atomic.LoadUint32(futexWord(cond))
-	goPthreadMutexUnlock(mutex)
+	depth := mutexUnlockForWait(mutex)
 	futexDo(cond, futexOpWait, uintptr(v), 0)
-	goPthreadMutexLock(mutex)
+	mutexRelockAfterWait(mutex, depth)
 	return 0
 }
 
 //go:noinline
 func goCondTimedwait(cond, mutex, abstime uintptr) int {
 	v := atomic.LoadUint32(futexWord(cond))
-	goPthreadMutexUnlock(mutex)
+	depth := mutexUnlockForWait(mutex)
 	var e syscall.Errno
 	if abstime == 0 {
 		e = futexDo(cond, futexOpWait, uintptr(v), 0)
 	} else {
 		e = futexDo(cond, futexOpWaitBitset|futexClockRealtime, uintptr(v), abstime)
 	}
-	goPthreadMutexLock(mutex)
+	mutexRelockAfterWait(mutex, depth)
 	if e == syscall.ETIMEDOUT {
 		return 110
 	}
@@ -298,6 +348,7 @@ const (
 	futexOpWaitBitset   = 9          // FUTEX_WAIT_BITSET
 	futexClockRealtime  = 256        // FUTEX_CLOCK_REALTIME
 	futexBitsetMatchAny = 0xffffffff // FUTEX_BITSET_MATCH_ANY
+	futexPrivate        = 128        // FUTEX_PRIVATE_FLAG
 )
 
 func futexWord(cond uintptr) *uint32 { return (*uint32)(unsafe.Pointer(cond)) }
@@ -307,6 +358,7 @@ func futexWord(cond uintptr) *uint32 { return (*uint32)(unsafe.Pointer(cond)) }
 func futexDo(uaddr, op, val, timeout uintptr) syscall.Errno {
 	r := rawSysNoEnter6(syscall.SYS_FUTEX, uaddr, op, val, timeout, 0, futexBitsetMatchAny)
 	if int64(r) < 0 {
+		setErrno(int32(-int64(r)))
 		return syscall.Errno(-int64(r))
 	}
 	return 0

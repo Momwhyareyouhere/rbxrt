@@ -139,7 +139,11 @@ func goFopen(path, mode uintptr) uintptr {
 		return 0
 	}
 	fd := rawSysNoEnter(2, path, uintptr(flags), 0666)
+	if debugFS {
+		traceFS("fopen", path, sysRet(fd))
+	}
 	if int64(fd) < 0 {
+		setErrno(int32(-int64(fd)))
 		return 0
 	}
 	for i := range &fastFiles {
@@ -256,6 +260,7 @@ func fileRead(cf *cFile, buf []byte) int {
 	for n < len(buf) {
 		r := rawSysNoEnter(0, uintptr(cf.fd), uintptr(unsafe.Pointer(&buf[n])), uintptr(len(buf)-n))
 		if int64(r) < 0 {
+			setErrno(int32(-int64(r)))
 			if int64(r) == -int64(syscall.EINTR) {
 				continue
 			}
@@ -278,6 +283,7 @@ func fileWrite(cf *cFile, buf []byte) int {
 	for n < len(buf) {
 		w := rawSysNoEnter(1, uintptr(cf.fd), uintptr(unsafe.Pointer(&buf[n])), uintptr(len(buf)-n))
 		if int64(w) < 0 {
+			setErrno(int32(-int64(w)))
 			if int64(w) == -int64(syscall.EINTR) {
 				continue
 			}
@@ -381,6 +387,7 @@ func goFseek(stream, off, whence uintptr) int {
 	cf.ungot = -1
 	cf.mu.Unlock()
 	if r := rawSysNoEnter(8, uintptr(cf.fd), off, whence); int64(r) < 0 {
+		setErrno(int32(-int64(r)))
 		return -1
 	}
 	return 0
@@ -395,6 +402,7 @@ func goFtell(stream uintptr) int64 {
 	}
 	r := rawSysNoEnter(8, uintptr(cf.fd), 0, 1 /* SEEK_CUR */)
 	if int64(r) < 0 {
+		setErrno(int32(-int64(r)))
 		return -1
 	}
 	off := int64(r)

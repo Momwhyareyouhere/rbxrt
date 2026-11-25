@@ -80,6 +80,7 @@ func cmdLoad(args []string) error {
 		return err
 	}
 	b.ClassifyImports()
+	selectProfile(b.EngineVersion())
 
 	loader.InstallHooks()
 	// Bring up the graphics platform *before* loading, so the engine's gl*/egl*
@@ -131,6 +132,28 @@ func cmdLoad(args []string) error {
 		applyTelemetryWorkaround(im.Bias)
 	}
 
+	// The engine keeps its working files (cache/, http/, appData/, exe/)
+	// relative to the current directory, as it does on Android where the
+	// process runs inside the app's data directory. Move there before any guest
+	// code runs, so a run never writes into wherever rbxrt was started from.
+	if os.Getenv("RBXRT_BOOT") != "" && (doInit || jni) {
+		// Paths given relative to where rbxrt was started must keep meaning
+		// the same files after the change of directory.
+		for _, k := range []string{"RBXRT_APK", "RBXRT_DATA", "RBXRT_ASSETS"} {
+			if v := os.Getenv(k); v != "" && !filepath.IsAbs(v) {
+				if abs, err := filepath.Abs(v); err == nil {
+					os.Setenv(k, abs)
+				}
+			}
+		}
+		if err := ensureDataDir(); err != nil {
+			return err
+		}
+		if err := os.Chdir(rbxrtDataDir()); err != nil {
+			return fmt.Errorf("enter data directory: %w", err)
+		}
+	}
+
 	if doInit {
 		if debugMem() {
 			dumpMapsNear(im.Bias)
@@ -147,9 +170,6 @@ func cmdLoad(args []string) error {
 	// locale and the clock through JNI (see javadata.go). Gated with the rest
 	// of the boot so a run that wants only natural behaviour can turn it off.
 	if os.Getenv("RBXRT_BOOT") != "" {
-		if err := ensureDataDir(); err != nil {
-			return err
-		}
 		setJavaStringValues(im)
 		seedJavaValues()
 	}
@@ -468,13 +488,16 @@ func javaBootKick(im *loader.Image) (pump func() int) {
 	stopWatchdog := bootWatchdog(im)
 	defer stopWatchdog()
 
-	call("nativeGameGlobalInit", 0)
-	call("nativeUpdateAdapterInit", 0)
-	// Android initializes the native flag provider from its preferences before
-	// loading client settings or constructing the app bridge. This clean launch
-	// has no persisted overrides, so pass an empty fake String array.
+	// Android initializes the native flag provider from its preferences in
+	// Application.onCreate, before any activity native runs. Since 2.748,
+	// nativeGameGlobalInit hands the app-bridge global init to a worker that
+	// blocks in RbxStorage::getStorageInterface until fast flags are loaded,
+	// so this must come first. This clean launch has no persisted overrides,
+	// so pass an empty fake String array.
 	callOther("com/roblox/client/flags/FlagJniInterface", "nativeInitializeNativeFlags",
 		hostabi.NewFakeObject("[Ljava/lang/String;"))
+	call("nativeGameGlobalInit", 0)
+	call("nativeUpdateAdapterInit", 0)
 	callArgs("com/roblox/engine/jni/NativeSettingsInterface", "nativeSetBaseUrl",
 		env, hostabi.FindClassHandle("com/roblox/engine/jni/NativeSettingsInterface"),
 		hostabi.NewJavaString("https://www.roblox.com"), hostabi.NewJavaString("https://api.roblox.com"))
@@ -492,12 +515,8 @@ func javaBootKick(im *loader.Image) (pump func() int) {
 	// Disable the generated telemetry sink itself during the pre-scheduler
 	// phase. Entering its exception machinery is what produces the int3 at
 	// 0x6d43424; telemetry is not required to create the graphics context.
-	if err := hostabi.PatchGuest(im.Bias+0x6d42f0c, []byte{0x31, 0xc0, 0xc3}); err != nil {
-		fmt.Fprintf(os.Stderr, "rbxrt: telemetry sink skip: %v\n", err)
-	}
-	if err := hostabi.PatchGuest(im.Bias+0x26aa865, []byte{0x90, 0x90, 0x90, 0x90, 0x90}); err != nil {
-		fmt.Fprintf(os.Stderr, "rbxrt: key-event probe skip: %v\n", err)
-	}
+	stubReturn0(im.Bias, activeProfile.telemetrySink, "telemetry sink")
+	nopCall(im.Bias, activeProfile.keyEventProbe, "key-event probe")
 	callArgs("com/roblox/engine/jni/NativeGLInterface", "setTaskSchedulerBackgroundMode",
 		env, cls, 0, hostabi.NewJavaString("ASMA.start"))
 	call("nativeAppBridgeV2StartAppWithParams", hostabi.NewFakeObject(classStartApp))
@@ -514,9 +533,7 @@ func javaBootKick(im *loader.Image) (pump func() int) {
 	if !startGame {
 		// Java sends a second surface/platform update after the app bridge starts;
 		// this is the notification that normally drives the app render view.
-		if err := hostabi.PatchGuest(im.Bias+0x24f4fed, []byte{0x90, 0x90, 0x90, 0x90, 0x90}); err != nil {
-			fmt.Fprintf(os.Stderr, "rbxrt: Lua-start key probe skip: %v\n", err)
-		}
+		nopCall(im.Bias, activeProfile.luaStartKeyProbe, "Lua-start key probe")
 		call("nativeAppBridgeStartLuaAppDM", 0)
 	}
 	callArgs("com/roblox/engine/jni/NativeGLInterface", "nativeAppBridgeV2SendAppEventOnAppReady",
@@ -527,9 +544,7 @@ func javaBootKick(im *loader.Image) (pump func() int) {
 	if startGame {
 		// StartGame has the same synthetic key-event probe as StartApp, but at
 		// its own call site. There is no Android input queue in the host.
-		if err := hostabi.PatchGuest(im.Bias+0x2e50483, []byte{0x90, 0x90, 0x90, 0x90, 0x90}); err != nil {
-			fmt.Fprintf(os.Stderr, "rbxrt: StartGame key-event probe skip: %v\n", err)
-		}
+		nopCall(im.Bias, activeProfile.startGameKeyProbe, "StartGame key-event probe")
 		call("nativeAppBridgeV2StartGameWithParam",
 			hostabi.NewFakeObject("com/roblox/engine/jni/autovalue/StartGameParams"))
 		callArgs("com/roblox/engine/jni/NativeGLInterface", "nativeAppBridgeV2UpdateSurfaceGameWithPlatformParams",
@@ -732,20 +747,7 @@ func applyTelemetryWorkaround(bias uintptr) {
 // "unregistered" path runs and the wrapper dispatches through the same table
 // slot it lives in, recursing into itself until the guest stack is exhausted.
 // Each entry below is the address and encoded length of the `je`.
-var telemetrySites = []struct {
-	off uintptr
-	tgt uintptr // the unregistered handler, recorded for diagnostics only
-	n   int
-}{
-	{0x6d40465, 0x6d404ec, 6},
-	{0x6d405fb, 0x6d4066a, 2},
-	{0x6d40767, 0x6d407e4, 2},
-	{0x6d408db, 0x6d4092a, 2},
-	{0x6d40a0c, 0x6d40a6a, 2},
-	{0x6d40b4f, 0x6d40bd0, 6},
-	{0x6d40cdf, 0x6d40d5c, 2},
-	{0x6d40e53, 0x6d40ed2, 2},
-}
+// The per-build sites live in buildProfile.telemetrySites (profile.go).
 
 // patchTelemetryFamily replaces each family branch with NOPs so the wrappers
 // always take their normal (context present) path. This is deliberately
@@ -753,16 +755,20 @@ var telemetrySites = []struct {
 // every other caller, in particular the thread-registration helpers around
 // 0x2244880 that populate the sampler's per-thread slot table.
 func patchTelemetryFamily(bias uintptr) error {
-	for _, s := range telemetrySites {
+	sites := activeProfile.telemetrySites
+	if len(sites) == 0 {
+		return fmt.Errorf("no telemetry sites located in build %s", activeProfile.version)
+	}
+	for _, s := range sites {
 		nops := make([]byte, s.n)
 		for i := range nops {
 			nops[i] = 0x90
 		}
-		if err := hostabi.PatchGuest(bias+s.off, nops); err != nil {
+		if err := hostabi.PatchGuestChecked(bias+s.off, nops, isJe); err != nil {
 			return fmt.Errorf("telemetry site +%#x: %w", s.off, err)
 		}
 	}
-	fmt.Fprintf(os.Stderr, "rbxrt: patched %d telemetry dispatch site(s) to take the context-present path\n", len(telemetrySites))
+	fmt.Fprintf(os.Stderr, "rbxrt: patched %d telemetry dispatch site(s) to take the context-present path\n", len(sites))
 	return nil
 }
 
@@ -770,10 +776,14 @@ func patchTelemetryFamily(bias uintptr) error {
 // 0x2de3c50 itself to report "context present" for every caller. Kept for
 // A/B comparison because it also disables the sampler's thread registration.
 func patchTelemetryGlobal(bias uintptr) error {
-	if err := hostabi.PatchGuest(bias+0x2de3c50, []byte{0xb0, 0x01, 0xc3}); err != nil {
+	off := activeProfile.telemetryPredicate
+	if off == 0 {
+		return fmt.Errorf("telemetry predicate not located in build %s", activeProfile.version)
+	}
+	if err := hostabi.PatchGuest(bias+off, []byte{0xb0, 0x01, 0xc3}); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "rbxrt: patched 0x2de3c50 -> return true (global)\n")
+	fmt.Fprintf(os.Stderr, "rbxrt: patched %#x -> return true (global)\n", off)
 	return nil
 }
 

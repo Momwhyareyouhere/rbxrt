@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strconv"
 )
 
 func main() {
@@ -30,6 +31,16 @@ func main() {
 	// goroutine to the process's first OS thread keeps the engine's notion of
 	// the main thread and this goroutine's thread the same.
 	runtime.LockOSThread()
+	// Guest threads block in the kernel (futex, poll) through raw syscalls that
+	// cannot use Go's entersyscall, because they run on a guest stack. Such a
+	// thread keeps its P for as long as it is blocked. With the default
+	// GOMAXPROCS (the CPU count) a handful of waiting engine threads therefore
+	// consume every P, and the goroutine that would wake them - or the boot
+	// watchdog, or a timer - never runs again. Size the P pool for the engine's
+	// thread count instead; idle Ps cost almost nothing. This must happen
+	// before any guest code runs: changing GOMAXPROCS stops the world, which
+	// can never complete once a P is parked inside a raw futex wait.
+	runtime.GOMAXPROCS(guestMaxProcs())
 	if len(os.Args) < 2 {
 		usage()
 		os.Exit(2)
@@ -70,4 +81,16 @@ func usage() {
   rbxrt run <instance-dir>      launch a Roblox instance
   rbxrt help                    this text
 `)
+}
+
+// guestMaxProcs is the GOMAXPROCS the runtime runs with; see main. The engine
+// starts on the order of a hundred threads, so 256 leaves headroom.
+// RBXRT_GOMAXPROCS overrides it.
+func guestMaxProcs() int {
+	if s := os.Getenv("RBXRT_GOMAXPROCS"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 256
 }

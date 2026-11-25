@@ -302,12 +302,14 @@ func memfdFromBytes(name string, b []byte) int {
 	nb := append([]byte(name), 0)
 	fd := rawSysNoEnter(sysMemfdCreate, uintptr(unsafe.Pointer(&nb[0])), mfdCloexec, 0)
 	if int64(fd) < 0 {
+		setErrno(int32(-int64(fd)))
 		fmt.Fprintf(os.Stderr, "rbxrt: memfd_create: errno=%d\n", -int64(fd))
 		return -1
 	}
 	for len(b) > 0 {
 		n := rawSysNoEnter(1, fd, uintptr(unsafe.Pointer(&b[0])), uintptr(len(b)))
 		if int64(n) < 0 {
+			setErrno(int32(-int64(n)))
 			rawSysNoEnter(3, fd, 0, 0)
 			return -1
 		}

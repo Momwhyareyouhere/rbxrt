@@ -108,6 +108,9 @@ func goMemrchr(s, c, n uintptr) uintptr {
 
 //go:noinline
 func goStrlen(s uintptr) uintptr {
+	if s < 4096 {
+		nullStringFault("strlen", s)
+	}
 	p := s
 	for *(*byte)(unsafe.Pointer(p)) != 0 {
 		p++
@@ -183,6 +186,9 @@ func goStrncat(dst, src, n uintptr) uintptr {
 
 //go:noinline
 func goStrcmp(a, b uintptr) int {
+	if a < 4096 || b < 4096 {
+		nullStringFault("strcmp", min(a, b))
+	}
 	for {
 		x := *(*byte)(unsafe.Pointer(a))
 		y := *(*byte)(unsafe.Pointer(b))
@@ -198,6 +204,9 @@ func goStrcmp(a, b uintptr) int {
 
 //go:noinline
 func goStrncmp(a, b, n uintptr) int {
+	if n > 0 && (a < 4096 || b < 4096) {
+		nullStringFault("strncmp", min(a, b))
+	}
 	for n > 0 {
 		x := *(*byte)(unsafe.Pointer(a))
 		y := *(*byte)(unsafe.Pointer(b))
@@ -313,7 +322,10 @@ func goStrstr(hay, needle uintptr) uintptr {
 	// otherwise invisible; surface it here instead.
 	if cstrIs(needle, "out of memory") {
 		rp, _ := guestCapture()
-		fmt.Fprintf(os.Stderr, "rbxrt: fatal message: %q caller=%#x\n", cstrN(hay, 512), rp)
+		fmt.Fprintf(os.Stderr, "rbxrt: fatal message: %q caller=%s\n", cstrN(hay, 512), guestAddr(rp))
+		if debugWalk {
+			walkGuestFrames(24)
+		}
 	}
 	nl := goStrlen(needle)
 	if nl == 0 {
@@ -461,4 +473,16 @@ func goStrtox(nptr, endp uintptr, base int, unsigned bool) uint64 {
 //go:noinline
 func goAtoi(s uintptr) int {
 	return int(int64(goStrtox(s, 0, 10, false)))
+}
+
+// nullStringFault reports a C string function handed a null (or near-null)
+// pointer and aborts, naming the guest call site. bionic would fault here too;
+// the report replaces an anonymous Go nil-dereference panic.
+func nullStringFault(fn string, s uintptr) {
+	rp, _ := guestCapture()
+	writeStderrRaw(fmt.Sprintf("rbxrt: %s(%#x) called with a null pointer from %s\n", fn, s, guestAddr(rp)))
+	if debugWalk {
+		walkGuestFrames(24)
+	}
+	exitNow(139)
 }
