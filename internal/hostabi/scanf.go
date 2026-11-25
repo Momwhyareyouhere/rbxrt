@@ -92,7 +92,11 @@ func scanInts(src *scanSrc, width, base int) (val int64, neg bool, ok bool) {
 	if width == 0 {
 		width = 1 << 30
 	}
-	ch, okch := skipWS(src)
+	// skipWS only peeks at the first non-space character; consume it.
+	if _, okch := skipWS(src); !okch {
+		return 0, false, false
+	}
+	ch, okch := src.getc()
 	if !okch {
 		return 0, false, false
 	}
@@ -129,22 +133,23 @@ func scanInts(src *scanSrc, width, base int) (val int64, neg bool, ok bool) {
 	var dval uint64
 	consumed := 0
 	for {
-		var d uint64
+		// The first character that is not a digit of this base ends the
+		// number and is left unread for the rest of the format.
+		d := -1
 		switch {
 		case ch >= '0' && ch <= '9':
-			d = uint64(ch - '0')
-		case base == 16 && ch >= 'a' && ch <= 'f':
-			d = uint64(ch-'a') + 10
-		case base == 16 && ch >= 'A' && ch <= 'F':
-			d = uint64(ch-'A') + 10
-		default:
-			break
+			d = int(ch - '0')
+		case ch >= 'a' && ch <= 'f':
+			d = int(ch-'a') + 10
+		case ch >= 'A' && ch <= 'F':
+			d = int(ch-'A') + 10
 		}
-		if int64(d) >= int64(base) {
+		if d < 0 || d >= base {
+			src.ungetc(ch)
 			break
 		}
 		consumed++
-		dval = dval*uint64(base) + d
+		dval = dval*uint64(base) + uint64(d)
 		width--
 		if width <= 0 {
 			break
@@ -198,7 +203,11 @@ func scanFloatVal(src *scanSrc, width int) (float64, bool) {
 	if width == 0 {
 		width = 1 << 30
 	}
-	ch, ok := skipWS(src)
+	// skipWS only peeks at the first non-space character; consume it.
+	if _, ok := skipWS(src); !ok {
+		return 0, false
+	}
+	ch, ok := src.getc()
 	if !ok {
 		return 0, false
 	}
@@ -395,41 +404,29 @@ func scanfCore(fmtv string, src *scanSrc, v *vaList) int {
 
 		switch conv {
 		case 'd':
-			val, neg, ok := scanInts(src, width, 10)
+			val, _, ok := scanInts(src, width, 10)
 			if !ok {
 				return assigned
 			}
-			if neg {
-				storeInt(v, uint64(-val), true, suppress, length)
-			} else {
-				storeInt(v, uint64(val), true, suppress, length)
-			}
+			storeInt(v, uint64(val), true, suppress, length) // val is already signed
 			if !suppress {
 				assigned++
 			}
 		case 'i':
-			val, neg, ok := scanInts(src, width, -1)
+			val, _, ok := scanInts(src, width, -1)
 			if !ok {
 				return assigned
 			}
-			if neg {
-				storeInt(v, uint64(-val), true, suppress, length)
-			} else {
-				storeInt(v, uint64(val), true, suppress, length)
-			}
+			storeInt(v, uint64(val), true, suppress, length) // val is already signed
 			if !suppress {
 				assigned++
 			}
 		case 'u':
-			val, neg, ok := scanInts(src, width, 10)
+			val, _, ok := scanInts(src, width, 10)
 			if !ok {
 				return assigned
 			}
-			if neg {
-				storeInt(v, uint64(-val), false, suppress, length)
-			} else {
-				storeInt(v, uint64(val), false, suppress, length)
-			}
+			storeInt(v, uint64(val), false, suppress, length) // val is already signed
 			if !suppress {
 				assigned++
 			}

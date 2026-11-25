@@ -364,33 +364,17 @@ func copyToGuest(dst uintptr, b []byte) {
 //go:noinline
 //go:nosplit
 func goVsnprintf(str, size, format, ap uintptr) int {
-	// Native startup uses this for optional diagnostics while still on the
-	// guest stack. Formatting there can grow the Go stack; an empty result is
-	// preferable to corrupting the guest call frame. Full formatting remains
-	// available to the non-startup printf entry points below.
-	if bootPrintfMode {
-		if str != 0 && size != 0 {
-			*(*byte)(unsafe.Pointer(str)) = 0
-		}
-		return 0
-	}
 	if format == 0 {
 		if str != 0 && size != 0 {
 			*(*byte)(unsafe.Pointer(str)) = 0
 		}
 		return 0
 	}
-	// glibc/Android callers commonly probe the required size with a null
-	// destination. Avoid the allocating formatter on the guest stack for that
-	// startup probe; the exact formatted length is not needed by the engine's
-	// diagnostic path, while returning the format length is safe and bounded.
-	if str == 0 && size == 0 {
-		n := uintptr(0)
-		for n < 1<<20 && *(*byte)(unsafe.Pointer(format + n)) != 0 {
-			n++
-		}
-		return int(n)
-	}
+	// A null destination with size 0 is the standard "how long would it be?"
+	// probe that C++ formatting helpers make before allocating; it must
+	// return the real formatted length. (An earlier boot-time shortcut that
+	// returned an empty string, or the format's own length, left every
+	// engine-formatted string empty - log file names, paths, URLs.)
 	out := formatC(cstr(format), (*vaList)(unsafe.Pointer(ap)))
 	n := len(out)
 	if size != 0 {

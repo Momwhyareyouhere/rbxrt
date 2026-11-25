@@ -203,6 +203,10 @@ func InitGraphics() error {
 	hostFuncs["eglInitialize"] = goEglInitialize
 	hostFuncs["eglCreateContext"] = goEglCreateContext
 	hostFuncs["eglMakeCurrent"] = goEglMakeCurrent
+	// GLSL ES compatibility shim; see glsl.go.
+	if glShaderSourceHost = hostDlsym(gfx.gles, "glShaderSource"); glShaderSourceHost != 0 {
+		hostFuncs["glShaderSource"] = goGlShaderSource
+	}
 	hostFuncs["eglSwapBuffers"] = goEglSwapBuffers
 	hostFuncs["ANativeWindow_fromSurface"] = goANativeWindowFromSurface
 	hostFuncs["ANativeWindow_getWidth"] = goANativeWindowGetWidth

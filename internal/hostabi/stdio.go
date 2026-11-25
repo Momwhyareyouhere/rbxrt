@@ -432,10 +432,11 @@ func goFgetc(stream uintptr) int {
 //go:noinline
 //go:nosplit
 func goFputc(c, stream uintptr) int {
-	// Roblox's startup logger can emit an unbounded stream while the guest is
-	// still inside StartApp. fd 1 is a harness pipe with no consumer, so a
-	// synchronous write here can block the main startup thread indefinitely.
-	if bootPrintfMode {
+	// Roblox's startup logger can emit an unbounded stream to stdout while the
+	// guest is still inside StartApp; when stdout is a harness pipe nobody
+	// reads, a synchronous write would block the startup thread. Drop only
+	// that stream during a boot: files must still receive what is written.
+	if bootPrintfMode && stream == stdoutPtr {
 		return int(byte(c))
 	}
 	fd := -1

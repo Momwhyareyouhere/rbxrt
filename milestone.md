@@ -19,9 +19,9 @@ build in `cmd/rbxrt/profile.go`.
 - [x] 7. `nativeAppBridgeV2InitWithParams(InitParams)` completes
 - [x] 8. `nativeAppBridgeV2StartAppWithParams(StartAppParams)` reaches the graphics path
 - [x] 9. EGL initialized on host Mesa: `eglInitialize` / `eglCreateContext` / `eglMakeCurrent` counted > 0
-- [ ] 10. Render backend comes up (Mesa zink → Vulkan) and creates a swapchain/surface
+- [x] 10. Render backend comes up (Mesa zink → Vulkan) and creates a swapchain/surface
 - [ ] 11. Engine loads `rbxasset://places/Mobile.rbxl` (place data accepted)
-- [ ] 12. First `eglSwapBuffers` with real content
+- [~] 12. First `eglSwapBuffers` with real content
 - [ ] 13. Roblox window launches and shows a rendered frame
 
 ## Milestone 8 (and 9)
@@ -74,6 +74,42 @@ What it took (runtime fixes, not engine patches — 2.748 needs no image patches
   core-script patch `UniversalApp.rbxm` resolves from there); the APK's
   `assets/ssl/cacert.pem` is staged as `exe/cacert.pem`.
 
+## Milestone 10
+
+The engine's GLES renderer comes up on the host's Mesa, which on this machine
+is **zink on Vulkan** (`GL Renderer: zink Vulkan 1.4 (Intel UHD Graphics (JSL))`,
+`OpenGL ES 3.2 Mesa 26.3.1`). The device reports its caps, all 657 shaders of
+the `glsles3` pack compile, the SurfaceController's render job runs, and
+frames are presented through zink's Vulkan swapchain: about 515
+`eglSwapBuffers` per 15 s hold (~33 fps), 5/5 clean runs. The engine's own
+Vulkan mode is not used (it declines: "Android version is too old").
+
+What it took:
+
+- **Engine logs.** `vsnprintf` returned empty strings during a boot (an old
+  stack-safety shortcut), so every engine-formatted string was empty - log
+  file names included. Fixed; the engine now writes
+  `appData/logs/<version>_<time>_Player_<id>_last.log`, and FLog channels can
+  be enabled with `RBXRT_CLIENT_SETTINGS='{"FLogGraphics":"6"}'`.
+- **Shader pack.** `assets/shaders/` (and `assets/fonts/`) are staged; the GLES
+  renderer refuses its graphics mode without `shaders_glsles3.pack`.
+- **`sscanf`.** Integer conversions consumed the character after the number
+  (a `break` that only left a `switch`), read the first character twice, and
+  negated negative numbers twice; float conversions read the first character
+  twice. The renderer parses every shader's uniform blocks with
+  `sscanf("uniform vec4 CB%d [%d];")`, so all 1590 shader creations threw.
+- **GLSL ES leniency.** Terrain shaders multiply `uint * int`, which mobile
+  drivers accept and GLSL ES 3.00 (Mesa) does not. `glShaderSource` resubmits
+  ES 3.00 shaders as ES 3.10 with `GL_EXT_shader_implicit_conversions`;
+  validated on Mesa against the whole pack (`TestGLSLRelaxCorpus`).
+
+## Milestone 12 status
+
+Frames are swapped continuously, and their content is the engine's own clear
+colour (RGB 11,11,11 over the window's black background), not UI yet. The Lua
+app reaches its `Landing` stage, but its screens need network data (HTTPS is
+still failing, below) and nothing is drawn over the clear.
+
 ## Known open issues
 
 - **TLS handshakes fail.** Connections to `apis.roblox.com` get as far as the
@@ -82,9 +118,7 @@ What it took (runtime fixes, not engine patches — 2.748 needs no image patches
   failure is inside OpenSSL's key-share processing on this runtime. Boot does
   not depend on it yet (flags come from the local flag cache and the bundled
   patch is current), but anything online will.
-- `eglSwapBuffers` is not called yet (milestone 12); the render backend has not
-  been exercised beyond context creation (milestone 10).
 
-Current focus: milestone 10 — drive the render backend past context creation.
+Current focus: milestone 11/12 — load `Mobile.rbxl` and get UI or a place on screen; fix TLS.
 
 Last updated: 2026-11-25

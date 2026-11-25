@@ -251,7 +251,21 @@ RBXRT_DEBUG_FS=1     # open/fopen/stat/lstat/access by path, with results
 RBXRT_WALK=1         # dump the guest RBP chain at a fatal exit/abort
 RBXRT_PATCH_REG=off  # disable the telemetry stop-gap to reproduce the crash (2.734)
 RBXRT_GOMAXPROCS=<n> # Go P pool size (default 256; see cmd/rbxrt/main.go)
+RBXRT_BREAK=<offs>   # int3 at these image offsets (hex, comma-separated), for gdb
 ```
+
+The engine writes its own log to `<data>/appData/logs/*_last.log`. Its FLog
+channels are fast flags, passed in through the client settings:
+
+```
+RBXRT_CLIENT_SETTINGS='{"FLogGraphics":"6","FLogSurfaceController":"6"}'
+```
+
+Shader work: `MESA_SHADER_DUMP_PATH=<dir>` (a Mesa variable) dumps every
+shader the engine compiles; `RBXRT_GFX_TEST=1 RBXRT_GLSL_CORPUS=<dir> go test
+./internal/hostabi -run TestGLSLRelaxCorpus` then checks them all against the
+host driver. `RBXRT_BREAK` needs gdb to launch rbxrt itself (Yama
+`ptrace_scope` 1 forbids attaching).
 
 Boot inputs (`--launch`):
 

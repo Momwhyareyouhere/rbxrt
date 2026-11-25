@@ -131,6 +131,7 @@ func cmdLoad(args []string) error {
 	if doInit || jni {
 		applyTelemetryWorkaround(im.Bias)
 	}
+	plantBreakpoints(im.Bias)
 
 	// The engine keeps its working files (cache/, http/, appData/, exe/)
 	// relative to the current directory, as it does on Android where the
@@ -504,7 +505,7 @@ func javaBootKick(im *loader.Image) (pump func() int) {
 	callOther("com/roblox/engine/jni/NativeSettingsInterface", "nativeSetRobloxChannel",
 		hostabi.NewJavaString("production"))
 	callArgs("com/roblox/engine/jni/NativeGLInterface", "nativeInitClientSettings",
-		env, cls, hostabi.NewJavaString(`{"applicationSettings":{}}`),
+		env, cls, hostabi.NewJavaString(clientSettingsJSON()),
 		hostabi.NewJavaString(""), hostabi.NewJavaString("production"))
 	// The post-settings callback requires Android ART ApplicationExitInfo
 	// objects. The settings payload above is sufficient for this host path.
@@ -859,4 +860,39 @@ func segmentFlags(f elf.ProgFlag) string {
 		sb.WriteString("R")
 	}
 	return sb.String()
+}
+
+// clientSettingsJSON is the ClientAppSettings payload handed to
+// nativeInitClientSettings, as the Java app does after fetching it.
+// RBXRT_CLIENT_SETTINGS supplies flag overrides as a JSON object, e.g.
+// {"FLogGraphics":"6"} to turn on an FLog channel; it defaults to none.
+func clientSettingsJSON() string {
+	flags := os.Getenv("RBXRT_CLIENT_SETTINGS")
+	if flags == "" {
+		flags = "{}"
+	}
+	return `{"applicationSettings":` + flags + `}`
+}
+
+// plantBreakpoints writes an int3 at each guest-image offset listed in
+// RBXRT_BREAK (comma-separated hex, e.g. 0x23f07a3), for running under gdb:
+// the process stops there with SIGTRAP and the guest's registers intact. The
+// instruction at the site is destroyed, so this is for inspection only.
+func plantBreakpoints(bias uintptr) {
+	spec := os.Getenv("RBXRT_BREAK")
+	if spec == "" {
+		return
+	}
+	for _, f := range strings.Split(spec, ",") {
+		off, err := strconv.ParseUint(strings.TrimPrefix(strings.TrimSpace(f), "0x"), 16, 64)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "rbxrt: RBXRT_BREAK: bad offset %q\n", f)
+			continue
+		}
+		if err := hostabi.PatchGuest(bias+uintptr(off), []byte{0xcc}); err != nil {
+			fmt.Fprintf(os.Stderr, "rbxrt: RBXRT_BREAK %#x: %v\n", off, err)
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "rbxrt: breakpoint at image+%#x (%#x)\n", off, bias+uintptr(off))
+	}
 }

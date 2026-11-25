@@ -30,60 +30,8 @@ func TestGraphicsProbe(t *testing.T) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	if err := InitGraphics(); err != nil {
-		t.Fatalf("InitGraphics: %v", err)
-	}
-
-	eglInit := hostDlsym(gfx.egl, "eglInitialize")
-	eglChoose := hostDlsym(gfx.egl, "eglChooseConfig")
-	eglCreateContext := hostDlsym(gfx.egl, "eglCreateContext")
-	eglMakeCurrent := hostDlsym(gfx.egl, "eglMakeCurrent")
+	dpy, surf := setupProbeContext(t)
 	eglSwapBuffers := hostDlsym(gfx.egl, "eglSwapBuffers")
-	eglQueryString := hostDlsym(gfx.egl, "eglQueryString")
-	for n, a := range map[string]uintptr{
-		"eglInitialize": eglInit, "eglChooseConfig": eglChoose,
-		"eglCreateContext": eglCreateContext, "eglMakeCurrent": eglMakeCurrent,
-		"eglSwapBuffers": eglSwapBuffers,
-	} {
-		if a == 0 {
-			t.Fatalf("host libEGL is missing %s", n)
-		}
-	}
-
-	dpy := goEglGetDisplay(0)
-	if dpy == 0 {
-		t.Fatal("eglGetDisplay returned NULL")
-	}
-
-	var maj, mnr int32
-	if callHostC(eglInit, &[9]uintptr{dpy, uintptr(unsafe.Pointer(&maj)), uintptr(unsafe.Pointer(&mnr))}) == 0 {
-		t.Fatal("eglInitialize failed")
-	}
-	t.Logf("EGL %d.%d, vendor=%q version=%q", maj, mnr,
-		cstr(callHostC(eglQueryString, &[9]uintptr{dpy, 0x3053})),
-		cstr(callHostC(eglQueryString, &[9]uintptr{dpy, 0x3054})))
-
-	attribs := []int32{0x3033, 0x0004, 0x3040, 0x0004, 0x3024, 8, 0x3023, 8, 0x3022, 8, 0x3038, 0}
-	var cfg uintptr
-	var n int32
-	if callHostC(eglChoose, &[9]uintptr{dpy, uintptr(unsafe.Pointer(&attribs[0])), uintptr(unsafe.Pointer(&cfg)), 1, uintptr(unsafe.Pointer(&n))}) == 0 || n == 0 {
-		t.Fatal("eglChooseConfig found no config")
-	}
-
-	anw := goANativeWindowFromSurface(0, 0)
-	surf := goEglCreateWindowSurface(dpy, cfg, anw, 0)
-	if surf == 0 {
-		t.Fatal("eglCreateWindowSurface failed")
-	}
-
-	ctxAttribs := []int32{0x3098, 2, 0x3038, 0}
-	ctx := callHostC(eglCreateContext, &[9]uintptr{dpy, cfg, 0, uintptr(unsafe.Pointer(&ctxAttribs[0]))})
-	if ctx == 0 {
-		t.Fatal("eglCreateContext failed")
-	}
-	if callHostC(eglMakeCurrent, &[9]uintptr{dpy, surf, surf, ctx}) == 0 {
-		t.Fatal("eglMakeCurrent failed")
-	}
 
 	// glGetString proves the driver is live and dispatch is current on this
 	// thread; glClear + eglSwapBuffers exercise the actual pipeline.
@@ -110,4 +58,65 @@ func TestGraphicsProbe(t *testing.T) {
 		t.Fatal("eglSwapBuffers failed")
 	}
 	t.Logf("rendered one frame into X11 window %#x (%dx%d)", gfx.xWindow, gfx.width, gfx.height)
+}
+
+// setupProbeContext brings up the graphics layer and makes a GLES 3 context
+// current on a window surface, on the calling (locked) OS thread.
+func setupProbeContext(t *testing.T) (dpy, surf uintptr) {
+	t.Helper()
+	if err := InitGraphics(); err != nil {
+		t.Fatalf("InitGraphics: %v", err)
+	}
+
+	eglInit := hostDlsym(gfx.egl, "eglInitialize")
+	eglChoose := hostDlsym(gfx.egl, "eglChooseConfig")
+	eglCreateContext := hostDlsym(gfx.egl, "eglCreateContext")
+	eglMakeCurrent := hostDlsym(gfx.egl, "eglMakeCurrent")
+	eglSwapBuffers := hostDlsym(gfx.egl, "eglSwapBuffers")
+	eglQueryString := hostDlsym(gfx.egl, "eglQueryString")
+	for n, a := range map[string]uintptr{
+		"eglInitialize": eglInit, "eglChooseConfig": eglChoose,
+		"eglCreateContext": eglCreateContext, "eglMakeCurrent": eglMakeCurrent,
+		"eglSwapBuffers": eglSwapBuffers,
+	} {
+		if a == 0 {
+			t.Fatalf("host libEGL is missing %s", n)
+		}
+	}
+
+	dpy = goEglGetDisplay(0)
+	if dpy == 0 {
+		t.Fatal("eglGetDisplay returned NULL")
+	}
+
+	var maj, mnr int32
+	if callHostC(eglInit, &[9]uintptr{dpy, uintptr(unsafe.Pointer(&maj)), uintptr(unsafe.Pointer(&mnr))}) == 0 {
+		t.Fatal("eglInitialize failed")
+	}
+	t.Logf("EGL %d.%d, vendor=%q version=%q", maj, mnr,
+		cstr(callHostC(eglQueryString, &[9]uintptr{dpy, 0x3053})),
+		cstr(callHostC(eglQueryString, &[9]uintptr{dpy, 0x3054})))
+
+	attribs := []int32{0x3033, 0x0004, 0x3040, 0x0004, 0x3024, 8, 0x3023, 8, 0x3022, 8, 0x3038, 0}
+	var cfg uintptr
+	var n int32
+	if callHostC(eglChoose, &[9]uintptr{dpy, uintptr(unsafe.Pointer(&attribs[0])), uintptr(unsafe.Pointer(&cfg)), 1, uintptr(unsafe.Pointer(&n))}) == 0 || n == 0 {
+		t.Fatal("eglChooseConfig found no config")
+	}
+
+	anw := goANativeWindowFromSurface(0, 0)
+	surf = goEglCreateWindowSurface(dpy, cfg, anw, 0)
+	if surf == 0 {
+		t.Fatal("eglCreateWindowSurface failed")
+	}
+
+	ctxAttribs := []int32{0x3098, 2, 0x3038, 0}
+	ctx := callHostC(eglCreateContext, &[9]uintptr{dpy, cfg, 0, uintptr(unsafe.Pointer(&ctxAttribs[0]))})
+	if ctx == 0 {
+		t.Fatal("eglCreateContext failed")
+	}
+	if callHostC(eglMakeCurrent, &[9]uintptr{dpy, surf, surf, ctx}) == 0 {
+		t.Fatal("eglMakeCurrent failed")
+	}
+	return dpy, surf
 }

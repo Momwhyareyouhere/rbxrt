@@ -79,59 +79,28 @@ func ensureDataDir() error {
 	if os.Getenv("RBXRT_SKIP_ASSET_STAGING") != "" {
 		return nil
 	}
-	// Roblox looks up ExtraContent through the filesystem (unlike ordinary
-	// packaged assets, which use AAssetManager), as <asset folder>/ExtraContent:
-	// the same place it has in the APK's assets/. When that directory exists the
-	// engine adds it as a content root, which is where rbxasset://models/...
-	// resolves the bundled core-script patches (UniversalApp.rbxm); without it
-	// StartApp finds no verified patch and aborts. Mirror the APK subtree there.
 	apkPath := os.Getenv("RBXRT_APK")
 	if apkPath == "" {
 		apkPath = "roblox.apk"
 	}
 	archive, err := apk.OpenArchive(apkPath)
 	if err != nil {
-		return fmt.Errorf("open APK for ExtraContent: %w", err)
+		return fmt.Errorf("open APK for asset staging: %w", err)
 	}
 	defer archive.Close()
-	const prefix = "assets/ExtraContent/"
-	for _, entry := range archive.Entries() {
-		if !strings.HasPrefix(entry, prefix) {
-			continue
-		}
-		rel := strings.TrimPrefix(entry, prefix)
-		if rel == "" || filepath.IsAbs(rel) || filepath.Clean(rel) != rel || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-			return fmt.Errorf("unsafe ExtraContent APK path %q", entry)
-		}
-		dst := filepath.Join(rbxrtDataDir(), "assets", "ExtraContent", rel)
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return fmt.Errorf("create ExtraContent directory %s: %w", filepath.Dir(dst), err)
-		}
-		if err := archive.Extract(entry, dst); err != nil {
-			return fmt.Errorf("extract APK entry %s: %w", entry, err)
-		}
-	}
-	// Packaged Roblox assets are read relative to the asset folder supplied by
-	// Java. The native engine's filesystem fallback resolves rbxasset:// paths
-	// beneath <asset folder>/content, so mirror that APK subtree too (for example
-	// UniversalAppPatchConfig is required before StartApp can continue).
-	const contentPrefix = "assets/content/"
-	for _, entry := range archive.Entries() {
-		if !strings.HasPrefix(entry, contentPrefix) {
-			continue
-		}
-		rel := strings.TrimPrefix(entry, contentPrefix)
-		if rel == "" || filepath.IsAbs(rel) || filepath.Clean(rel) != rel || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-			return fmt.Errorf("unsafe content APK path %q", entry)
-		}
-		// Stage into the process asset root as well as the AAsset APK source;
-		// some native filesystem paths strip rbxasset:// without adding content/.
-		dst := filepath.Join(rbxrtDataDir(), "assets", "content", rel)
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return fmt.Errorf("create content directory %s: %w", filepath.Dir(dst), err)
-		}
-		if err := archive.Extract(entry, dst); err != nil {
-			return fmt.Errorf("extract APK entry %s: %w", entry, err)
+	// Mirror the APK's asset subtrees the engine reads through the filesystem
+	// into <data>/assets, keeping their APK layout:
+	//   ExtraContent - an extra content root; rbxasset://models/... resolves
+	//                  the bundled core-script patches (UniversalApp.rbxm) here
+	//   content      - rbxasset:// paths (e.g. the patch configs)
+	//   android      - platform assets (fonts, terrain, textures)
+	//   shaders      - precompiled shader packs; the GLES renderer opens
+	//                  content/../shaders/shaders_glsles3.pack and refuses the
+	//                  graphics mode without it
+	//   fonts        - top-level font files
+	for _, sub := range []string{"ExtraContent", "content", "android", "shaders", "fonts"} {
+		if err := stageAPKTree(archive, "assets/"+sub+"/", filepath.Join(rbxrtDataDir(), "assets", sub)); err != nil {
+			return err
 		}
 	}
 	// The engine's OpenSSL loads its trust store from exe/cacert.pem (and
@@ -147,23 +116,6 @@ func ensureDataDir() error {
 		}
 		if err := archive.Extract("assets/ssl/cacert.pem", dst); err != nil {
 			return fmt.Errorf("extract CA bundle: %w", err)
-		}
-	}
-	const androidPrefix = "assets/android/"
-	for _, entry := range archive.Entries() {
-		if !strings.HasPrefix(entry, androidPrefix) {
-			continue
-		}
-		rel := strings.TrimPrefix(entry, androidPrefix)
-		if rel == "" || filepath.IsAbs(rel) || filepath.Clean(rel) != rel || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-			return fmt.Errorf("unsafe Android asset APK path %q", entry)
-		}
-		dst := filepath.Join(rbxrtDataDir(), "assets", "android", rel)
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return fmt.Errorf("create Android asset directory %s: %w", filepath.Dir(dst), err)
-		}
-		if err := archive.Extract(entry, dst); err != nil {
-			return fmt.Errorf("extract APK entry %s: %w", entry, err)
 		}
 	}
 	return nil
@@ -357,4 +309,30 @@ func seedJavaValues() {
 	// stamps its records with.
 	hostabi.SetFakeMethodFunc(classLogging, "getProcessTimestamp",
 		func() uintptr { return uintptr(time.Since(processStart).Milliseconds()) })
+}
+
+// stageAPKTree extracts every APK entry under prefix into dstDir, keeping the
+// relative layout. Entry names are checked so a crafted archive cannot write
+// outside dstDir.
+func stageAPKTree(archive *apk.Archive, prefix, dstDir string) error {
+	for _, entry := range archive.Entries() {
+		if !strings.HasPrefix(entry, prefix) {
+			continue
+		}
+		rel := strings.TrimPrefix(entry, prefix)
+		if rel == "" || strings.HasSuffix(rel, "/") {
+			continue
+		}
+		if filepath.IsAbs(rel) || filepath.Clean(rel) != rel || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+			return fmt.Errorf("unsafe APK path %q", entry)
+		}
+		dst := filepath.Join(dstDir, rel)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return fmt.Errorf("create directory %s: %w", filepath.Dir(dst), err)
+		}
+		if err := archive.Extract(entry, dst); err != nil {
+			return fmt.Errorf("extract APK entry %s: %w", entry, err)
+		}
+	}
+	return nil
 }
