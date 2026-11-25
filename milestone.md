@@ -20,7 +20,7 @@ build in `cmd/rbxrt/profile.go`.
 - [x] 8. `nativeAppBridgeV2StartAppWithParams(StartAppParams)` reaches the graphics path
 - [x] 9. EGL initialized on host Mesa: `eglInitialize` / `eglCreateContext` / `eglMakeCurrent` counted > 0
 - [x] 10. Render backend comes up (Mesa zink → Vulkan) and creates a swapchain/surface
-- [ ] 11. Engine loads `rbxasset://places/Mobile.rbxl` (place data accepted)
+- [x] 11. Engine loads `rbxasset://places/Mobile.rbxl` (place data accepted)
 - [~] 12. First `eglSwapBuffers` with real content
 - [ ] 13. Roblox window launches and shows a rendered frame
 
@@ -103,6 +103,18 @@ What it took:
   ES 3.00 shaders as ES 3.10 with `GL_EXT_shader_implicit_conversions`;
   validated on Mesa against the whole pack (`TestGLSLRelaxCorpus`).
 
+## Milestone 11
+
+The app shell loads its place from the bundled asset: the engine logs
+`DataModel Loading rbxasset://places/Mobile.rbxl`, resolves it to
+`assets/ExtraContent/places/Mobile.rbxl` (after probing `assets/android/`),
+reads all 147,973 bytes in one `fread`, initializes the place's services and
+reports `onGameLoaded` about a second later; the Lua app then reaches its
+`Landing` stage. No runtime change was needed beyond milestone 10's fixes (the
+ExtraContent location and working `vsnprintf`/`sscanf`). `RBXRT_DEBUG_FS` now
+also logs each `fread` per descriptor, which is how the byte count above was
+checked.
+
 ## Milestone 12 status
 
 Frames are swapped continuously, and their content is the engine's own clear
@@ -119,6 +131,6 @@ still failing, below) and nothing is drawn over the clear.
   not depend on it yet (flags come from the local flag cache and the bundled
   patch is current), but anything online will.
 
-Current focus: milestone 11/12 — load `Mobile.rbxl` and get UI or a place on screen; fix TLS.
+Current focus: milestone 12 — get UI on screen (the Lua app needs network data: fix TLS).
 
 Last updated: 2026-11-25

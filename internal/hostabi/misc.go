@@ -135,6 +135,12 @@ func goMremap(old, oldSize, newSize, flags uintptr) uintptr {
 // resolves to the wrong place on the host shows up.
 var debugFS = os.Getenv("RBXRT_DEBUG_FS") != ""
 
+// traceFread logs one fread under RBXRT_DEBUG_FS: the descriptor (matching
+// the fd an earlier fopen trace returned), bytes asked for and bytes read.
+func traceFread(fd, want, got int) {
+	writeStderrRaw(fmt.Sprintf("rbxrt: fs: fread(fd=%d, %d) -> %d\n", fd, want, got))
+}
+
 func traceFS(op string, path uintptr, r int) {
 	if !debugFS || path == 0 {
 		return

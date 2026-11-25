@@ -323,6 +323,9 @@ func goFread(ptr, size, nmemb, stream uintptr) uintptr {
 		}
 		n += int(r)
 	}
+	if debugFS {
+		traceFread(fd, total, n)
+	}
 	return uintptr(n / int(size))
 }
 

@@ -247,7 +247,7 @@ RBXRT_DEBUG_ASSET=1  # AAssetManager open/lookup and openFileDescriptor trace
 RBXRT_DEBUG_CONFIG=1 # AConfiguration synthesis trace
 RBXRT_DEBUG_GFX=1    # X11 window, EGL display and window-surface mapping trace
 RBXRT_DEBUG_NET=1    # getaddrinfo and socket traffic (=full dumps whole transfers)
-RBXRT_DEBUG_FS=1     # open/fopen/stat/lstat/access by path, with results
+RBXRT_DEBUG_FS=1     # open/fopen/stat/lstat/access by path, and fread per fd, with results
 RBXRT_WALK=1         # dump the guest RBP chain at a fatal exit/abort
 RBXRT_PATCH_REG=off  # disable the telemetry stop-gap to reproduce the crash (2.734)
 RBXRT_GOMAXPROCS=<n> # Go P pool size (default 256; see cmd/rbxrt/main.go)
