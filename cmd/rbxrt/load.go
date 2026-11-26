@@ -563,6 +563,26 @@ func javaBootKick(im *loader.Image) (pump func() int) {
 		env, cls, hostabi.NewFakeObject("java/util/List"))
 	callOther("com/roblox/client/startup/MainGameActivity", "nativeSetAssetPath",
 		hostabi.NewJavaString(filepath.Join(rbxrtDataDir(), "assets", "content")))
+	// Restore the saved login (session.go) before the app bridge starts, as
+	// the Java app does from its CookieManager.
+	var session *sessionKeeper
+	signedIn := false
+	if sessionEnabled() {
+		session = &sessionKeeper{call: func(name string, args ...uintptr) uintptr {
+			fn, ok := im.Exports["Java_com_roblox_engine_jni_NativeSettingsInterface_"+name]
+			if !ok {
+				return 0
+			}
+			var a [8]uintptr
+			a[0], a[1] = env, settingsCls
+			copy(a[2:], args)
+			return uintptr(hostabi.CallGuestInt8(fn, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]))
+		}}
+		var user sessionUser
+		if user, signedIn = session.restore(); signedIn {
+			seedSessionUser(user)
+		}
+	}
 	initParams := hostabi.NewFakeObject(classInitArgs)
 	call("nativeAppBridgeV2InitWithParams", initParams)
 	// Disable the generated telemetry sink itself during the pre-scheduler
@@ -593,7 +613,8 @@ func javaBootKick(im *loader.Image) (pump func() int) {
 		// its own login screen (FIntLuaAppLoginMethod=1 in the live settings)
 		// instead of a logged-in home whose every request fails with 401.
 		// RBXRT_LUA_APP_LOGGED_IN=1 restores the call.
-		if os.Getenv("RBXRT_LUA_APP_LOGGED_IN") != "" {
+		// A restored login (session.go) starts the app signed in too.
+		if os.Getenv("RBXRT_LUA_APP_LOGGED_IN") != "" || signedIn {
 			call("nativeAppBridgeStartLuaAppDM", 0)
 		}
 	}
@@ -625,6 +646,9 @@ func javaBootKick(im *loader.Image) (pump func() int) {
 	fmt.Printf("boot: will pump %s once per frame\n", pumpName)
 	updates := 0
 	return func() int {
+		if session != nil {
+			session.save(false)
+		}
 		if updates < 1 {
 			updates++
 			callArgs("com/roblox/engine/jni/NativeGLInterface", "nativeAppBridgeV2UpdateSurfaceAppWithPlatformParams",

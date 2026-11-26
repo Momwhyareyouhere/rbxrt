@@ -72,6 +72,21 @@ func SetJavaString(h uintptr, s string) {
 	jniMu.Unlock()
 }
 
+// JavaStringValue returns the text of a Java string handle (one the runtime
+// or the engine created with NewStringUTF), and false if h is not a string.
+func JavaStringValue(h uintptr) (string, bool) {
+	jniMu.Lock()
+	defer jniMu.Unlock()
+	b, ok := jniStrings[h]
+	if !ok {
+		return "", false
+	}
+	if n := len(b); n > 0 && b[n-1] == 0 {
+		b = b[:n-1]
+	}
+	return string(b), true
+}
+
 // SetFakeField gives a field of a fake class the value the engine reads back.
 // An object field takes a handle (NewJavaString or NewFakeObject), a numeric
 // field the number itself.

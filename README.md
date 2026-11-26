@@ -36,6 +36,14 @@ An *instance* is a directory with one Roblox installation:
   verifies the APK, extracts the engine when the APK is newer, and launches it
   in a window until Ctrl-C. The engine's own log is in
   `<instance>/data/appData/logs/`.
+- Staying signed in: once you sign in, rbxrt saves the login (the engine's
+  Roblox cookies) to `<instance>/data/session.json` within a few seconds, and
+  the next `run` restores it and starts signed in as that account. The Java
+  app does the same with Android's CookieManager. The file is readable only by
+  you (mode 0600) and holds your login token: treat it like a password and
+  don't share it. Signing out in the app removes it; so does deleting the
+  file. An expired login starts signed out. `RBXRT_NO_SESSION=1` disables
+  saving and restoring.
 - `rbxrt doctor [<instance>]` checks the platform, the display, the real
   EGL/GLES stack (and whether Mesa runs it on zink/Vulkan), reachability of the
   settings CDN and the mirror, and the instance's APK and free disk space.
