@@ -1,419 +1,128 @@
-# rbxrt — from-scratch Android-Roblox runtime for Linux
+# rbxrt
 
-A native Android-Roblox client runtime for Linux. No Wine, no Android
-emulator, no VM. Open-source and auditable, written in Go.
+Run the Android version of Roblox natively on Linux. No Wine, no Android
+emulator, no virtual machine. Open source and written in Go.
 
-Goals:
+> **Warning:** Roblox does not allow third-party clients. Using rbxrt may break
+> Roblox's Terms of Service and can get your account banned. Only use it with an
+> account you are willing to lose.
 
-1. **Engine runtime** — load and execute Roblox's native Android binary
-   (`libroblox.so`) on Linux (this milestone, in progress).
-2. **Launcher & settings** — multi-instance, first-run APK download or
-   user-import, per-instance settings.
-3. **Plugins, Flatpak, AppImage** — packaging and extension points.
+## What works
 
-## Quick start
+- The Roblox app: home page, friends, menus, search
+- Signing in with **Quick Sign-in**, and staying signed in after a restart
+- Mouse, keyboard and scroll wheel, with your own keyboard layout (German,
+  French, …, including AltGr and dead keys)
+- Native Wayland window (with title bar) or X11
+- GPU rendering through Mesa (on Vulkan via zink)
 
-```
+Not yet:
+
+- Signing in with a password (Roblox's captcha needs a web view rbxrt doesn't
+  have; use Quick Sign-in instead)
+- Joining games has not been tested, and so neither has game audio
+- Text you type into a box only appears after you click out of it
+- Microphone, camera and hardware video decoding
+
+## Requirements
+
+- Linux on x86_64 (64-bit Intel/AMD)
+- A Wayland or X11 desktop
+- Mesa graphics drivers with OpenGL ES 3 (most Linux systems)
+- Go 1.27 or newer, to build
+- About 500 MB of free disk space per instance
+- Optional: PulseAudio or PipeWire (sound), libxkbcommon (keyboard layouts)
+
+## Getting started
+
+```sh
 go build -o rbxrt ./cmd/rbxrt
-./rbxrt doctor                 # can this machine run it? (graphics, network)
-./rbxrt run ~/rbxrt-instance   # first run downloads the client, then launches it
+./rbxrt doctor                 # checks graphics, display and network
+./rbxrt run ~/rbxrt-instance   # downloads Roblox on first run, then starts it
 ```
 
-An *instance* is a directory with one Roblox installation:
+The first `run` downloads the latest Roblox Android app (about 230 MB) and
+checks that it is really signed by Roblox before using it. Close the window or
+press Ctrl-C to quit.
 
-```
-<instance>/base.apk                  the client APK (verified before every use)
-<instance>/lib/x86_64/libroblox.so   the engine, extracted from base.apk
-<instance>/data/                     app data: staged assets, caches, logs
-```
+To update Roblox later:
 
-- `rbxrt fetch <instance>` downloads the latest client from the APKPure mirror
-  into `base.apk`. The download is written to a temporary file, checked against
-  its advertised size, and verified (whole-file v2/v3 signature, Roblox
-  certificate pin) before it replaces anything; the version, certificate and
-  SHA-256 are printed.
-- `rbxrt run <instance> [--update]` fetches on first run (or with `--update`),
-  verifies the APK, extracts the engine when the APK is newer, and launches it
-  in a window until Ctrl-C. The engine's own log is in
-  `<instance>/data/appData/logs/`.
-- Signing in: use **Quick Sign-in** (the code or QR shown in the app, confirmed
-  on another device). Password sign-in currently stops at Roblox's security
-  challenge, which the app shows in an Android web view that rbxrt does not
-  have.
-- Staying signed in: rbxrt registers the cookie handler the Android app
-  registers (`JNICookieProtocol.updateOnSetCookieHandler`), so every cookie
-  Roblox sets, the login included, is saved to `<instance>/data/session.json`.
-  The next `run` restores them (`nativeSetMultipleCookies`, as the app does
-  from Android's CookieManager), checks the account with Roblox, and starts
-  signed in. The file is readable only by you (mode 0600) and holds your login
-  token: treat it like a password and don't share it. Signing out in the app
-  removes it, and so does deleting the file. An expired login starts signed
-  out. `RBXRT_NO_SESSION=1` disables saving and restoring;
-  `RBXRT_DEBUG_SESSION=1` logs cookie names (never values).
-- `rbxrt doctor [<instance>]` checks the platform, the display, the real
-  EGL/GLES stack (and whether Mesa runs it on zink/Vulkan), reachability of the
-  settings CDN and the mirror, and the instance's APK and free disk space.
-
-Display: on a Wayland session rbxrt opens a native Wayland window (xdg-shell,
-Mesa's Wayland EGL platform); otherwise it uses X11. `RBXRT_DISPLAY=wayland`,
-`x11` or `auto` (the default; falls back to X11/Xwayland if native Wayland
-cannot start) picks one explicitly.
-
-What works today: the Roblox start screen renders, and the mouse and keyboard
-work. Click buttons, type into text boxes, scroll, and use keys, on Wayland
-and X11. Not yet: signing in, audio. See `milestone.md`.
-
-Input goes in through the same natives Roblox's Android Java layer uses (see
-`cmd/rbxrt/input.go`): `nativePassMouseMove`/`Button`/`Wheel` for the mouse
-(Roblox treats it like a Chromebook mouse), `nativePassKeyEvent` for keys, and
-the on-screen-keyboard path (`showKeyboard` → `syncTextboxTextAndCursorPosition2`
-→ `nativePassText`) for typing into a focused text box. Keys follow the user's
-own keyboard layout, read from the compositor (Wayland) or the X server via
-libxkbcommon: German, French and other layouts type their own characters,
-including AltGr and dead keys (`^` + `e` = `ê`). Without libxkbcommon, US is
-assumed. One quirk remains: the
-text in a focused box is drawn only after it loses focus (Android Roblox expects
-its native keyboard overlay to draw it while editing).
-
-## Security model
-
-Before anything from an APK is executed it must be **cryptographically proven
-to be signed by Roblox**. The engine refuses v1 (JAR) scheme-only signatures and
-verifies whole-file integrity with the v2/v3 APK Signature Scheme, then checks
-the signing certificate's SHA-256 against a built-in list of Roblox's signing
-certificates.
-
-Everything here is based on public formats (APK signing block, AXML, ELF) and
-public facts. The byte layout of the v2/v3 signer structures was verified
-against AOSP's `apksig` sources, and the content-digest algorithm was
-verified byte-for-byte against `ApkSigningBlockUtils.java`. The reference
-open-source project Cordial (GPL-3.0) was consulted only for public facts
-(certificate digests, APKPure mirror endpoint); no code was copied.
-
-### Trusted certificates
-
-Built-in Roblox signing certificate SHA-256:
-
-```
-44932ea35a17a267372d71b54d1a0cb3da0dca5113e94406ae2fe18090ba1477
+```sh
+./rbxrt run ~/rbxrt-instance --update
 ```
 
-Cross-checked against genuine `base.apk` (Roblox 2.734.0.917, x86_64) via the
-Cordial trust file. Override for testing/auditing:
+### Signing in
+
+1. Click **Sign In**, then **Quick Sign-in**.
+2. Enter the code shown (or scan the QR code) in the Roblox app on your phone
+   or on roblox.com.
+3. You are signed in, and stay signed in the next time you start rbxrt.
+
+Your login is saved in `~/rbxrt-instance/data/session.json`. That file is
+private to your user, but anyone who gets it can use your account: don't share
+it or upload it. Signing out in Roblox, or deleting the file, removes it.
+
+## Settings
+
+Settings are environment variables, for example
+`RBXRT_WINDOW_WIDTH=1600 ./rbxrt run ~/rbxrt-instance`.
+
+| Variable | What it does |
+| --- | --- |
+| `RBXRT_WINDOW_WIDTH`, `RBXRT_WINDOW_HEIGHT` | Window size in pixels (default 1280×720) |
+| `RBXRT_DISPLAY=wayland` / `x11` | Force a window system (default: Wayland if available) |
+| `RBXRT_GFX_BACKEND=mesa` | Use Mesa's own GL driver instead of zink/Vulkan |
+| `RBXRT_NO_SESSION=1` | Don't save or restore your login |
+
+## Folders
+
+An *instance* is one Roblox installation. You can have several.
 
 ```
-RBXRT_TRUSTED_CERTIFICATES=/path/to/list.json rbxrt verify roblox.apk
-# list.json: ["<sha256-hex>", ...]
+~/rbxrt-instance/
+  base.apk                  the Roblox app (checked before every use)
+  lib/x86_64/libroblox.so   the Roblox engine, unpacked from base.apk
+  data/                     app data, caches and your saved login
+  data/appData/logs/        Roblox's own log files
 ```
 
-## Milestone status
+## Troubleshooting
 
-- [x] `internal/apk` — APK set reading (base+split), binary-manifest (AXML)
-      parser, v2/v3 signature verification, content-digest integrity, Roblox
-      certificate pinning. Fixtures generated with the real Android SDK tools
-      (`aapt2`, `zipalign`, `apksigner`) and verifiable with `apksigner`.
-- [x] `internal/engine` — ELF import/export/relocation analysis of
-      `libroblox.so` (SysV + Android APS2 packed relocs), dynamic init/fini.
-- [x] `internal/hostabi` — host symbol provider: executable ABI trampolines to
-      native Linux libc/math/syscalls, data objects, dl hooks, a JNI environment,
-      and pthread/TLS. Unknown strong functions bind to a trap that aborts
-      naming the symbol.
-- [x] `internal/loader` — map PT_LOAD, apply relocations, per-page protections,
-      RELRO, resolve imports against the image + host, run constructors
-      (`rbxrt load <lib.so> [--init]`).
-- [x] constructors of the genuine engine library complete (3678 init functions).
-- [x] `JNI_OnLoad` runs to completion and returns `JNI_VERSION_1_6`
-      (`rbxrt load <lib.so> --init --jni`).
-- [x] app-entry probe: `--entry` drives the real entry point, the GameActivity
-      native `Java_com_google_androidgamesdk_GameActivity_initializeNativeCode`
-      (see below). It registers GameActivity's 24 natives, prepares the main
-      looper, reads the asset manager and device configuration, and returns a
-      non-null JNI native handle (`initializeNativeCode returned 0x...`).
-- [x] graphics platform — `ANativeWindow` plus EGL/GLES. The runtime opens a
-      native Wayland or X11 window and drives the host's Mesa driver (`libEGL`/`libGLESv2`)
-      directly; see *Graphics platform* below.
-- [x] Android NDK platform layer — `ALooper`, `AAssetManager`,
-      `AConfiguration`, graphics and input, plus:
-      - audio: AAudio (`libaaudio.so`, loaded by FMOD) on the host's PulseAudio
-        or PipeWire server, in FMOD's callback mode; output only, the
-        microphone is never opened;
-      - media (`libmediandk`): a real `AMediaFormat`, and `AMediaCodec` /
-        `AImageReader` answering like a device without that codec (no hardware
-        decoder behind them);
-      - thermal (`AThermal_*`, from `libandroid.so`) from the host's sensors;
-      - networking/libc: `gethostbyname`, `if_nametoindex`/`if_indextoname`,
-        `__sendto_chk`, `__cmsg_nxthdr`, `__pread_chk`, termios, `syslog`,
-        `vasprintf`, `ldiv`, `scalbn`.
-      `libandroid.so`, `libmediandk.so` and `libaaudio.so` are provided to
-      `dlopen` by the runtime; `dlsym` on them finds only implemented names.
-      Not covered: five `long double` helpers (`powl`, `roundl`, `llroundl`,
-      `fmal`, `strtold_l`; Android's x86_64 `long double` is 128-bit) remain
-      traps. FMOD opens audio only once a game runs, so the engine has not
-      exercised the audio path yet; `TestAAudioPlayback` drives it the way FMOD
-      does.
-- [ ] engine task scheduler and JNI method table — the next entry point, and the
-      prerequisite for removing the telemetry stop-gap below.
+- **Nothing shows up / graphics errors:** run `./rbxrt doctor` and check the
+  lines marked `FAIL`.
+- **Stuck at a captcha or "challenge" after entering a password:** use Quick
+  Sign-in.
+- **Something else:** Roblox's log is in `~/rbxrt-instance/data/appData/logs/`.
+  More debug switches are listed in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
-Guest code runs on a dedicated mmap'd stack per thread rather than the Go stack,
-so the Go runtime's stack growth and GC never walk a guest frame; host functions
-the guest calls execute on that same stack. See `internal/hostabi/stack.go`.
+## Security
 
-### App-entry probe
+rbxrt only runs an app that is cryptographically proven to be signed by
+Roblox: it checks the APK's v2/v3 signature over the whole file and pins
+Roblox's signing certificate
+(`44932ea35a17a267372d71b54d1a0cb3da0dca5113e94406ae2fe18090ba1477`).
+Everything is built from public file formats and public facts; no Roblox code
+is included in this repository.
 
-`JNI_OnLoad` only initializes the library. The application starts when the Java
-`GameActivity` calls its native method:
+## Status
 
-```
-rbxrt load <lib.so> --entry        # implies --init and --jni
-```
+- [x] Verify and load the Android engine (`libroblox.so`)
+- [x] Android runtime: Java bridge (JNI), threads, files, network
+- [x] Graphics: Wayland and X11 windows, Mesa GLES
+- [x] Input: mouse, keyboard, text boxes, keyboard layouts
+- [x] Android platform libraries: audio (AAudio on PulseAudio/PipeWire), media,
+      thermal, networking
+- [x] Engine task scheduler and Java method calls, with no patches to the engine
+- [x] Sign in and stay signed in
+- [ ] Password sign-in (needs a web view for Roblox's captcha)
+- [ ] Joining games, game audio
+- [ ] Launcher, multiple instances, Flatpak/AppImage packages
 
-`--entry` fabricates a JNI environment, then invokes
-`Java_com_google_androidgamesdk_GameActivity_initializeNativeCode`. Its Java
-prototype was recovered from the APK's `classes2.dex`:
+Progress notes are in [milestone.md](milestone.md); how it all works is in
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
-```java
-long initializeNativeCode(String assetPath, String nativeLibDir,
-                          String internalDataDir, AssetManager assets,
-                          byte[] insets, Configuration config);
-```
+## License
 
-With `env` and `thiz` prepended that is eight arguments — six in registers, two
-on the stack (`CallGuestInt8` / `callGuestOnGuestStack8`). Every argument is a
-distinct non-null sentinel. The probe prints the returned native handle:
-
-```
-initializeNativeCode returned 0x7fd700125300 (140561395897088)
-```
-
-The engine reaches this by way of the platform layer: `ALooper_forThread`
-(prepared looper), `ALooper_addFd` (the engine's own wake pipe), the NDK asset
-manager (`AAssetManager_fromJava`, sourced from `RBXRT_APK`), and the device
-configuration (`AConfiguration_new` / `AConfiguration_fromAssetManager`, derived
-from `LANG` and the `RBXRT_SCREEN_*_DP` overrides). It then prepares a second
-looper for its own thread and registers a second fd before returning.
-
-### Launch attempt
-
-```
-rbxrt load <lib.so> --launch     # implies --init --jni --entry
-```
-
-`--launch` goes one step further than the probe: after `initializeNativeCode`
-returns its native handle, the runtime plays the role of the Java `GameActivity`
-and calls the registered lifecycle natives in the order the framework would —
-`onStartNative`, `onResumeNative`, `onWindowFocusChangedNative`,
-`onWindowInsetsChangedNative`, `onSurfaceCreatedNative`,
-`onSurfaceChangedNative`, `onSurfaceRedrawNeededNative`. The native methods and
-their signatures are taken from the engine's own `RegisterNatives` call, so the
-sequence cannot drift from the library.
-
-Today this is a launch *attempt*, not a launch. The engine accepts
-`onStartNative` and then terminates itself with exit code 1000. That happens
-*before* it makes any EGL or GL call: `--launch` now brings up the full graphics
-platform first (see below), and the engine still never reaches `eglGetDisplay`.
-
-The exit site is now known exactly. Each host thunk records the guest return
-address *and frame pointer* of its call site in the current goroutine's guest
-stack, just below its low bound (`invokeGuest` keeps `g.stack.lo` pointed there
-while guest code runs, so the thunk derives the slot from `g` alone). Because the
-slot is per-goroutine, a concurrent thread can no longer clobber it, and the
-report is stable across runs instead of naming a random `pthread_*` call. The
-slot is only inside mapped memory while `g.stack.lo` really is a guest stack's
-base, so the few host-to-thunk paths that run outside guest code (`CallHostRaw`
-and the thunk probes) install that context first with `withGuestStackContext`.
-`exit(1000)` comes from `image+0x1e95d5b`: the engine's
-`RBX_on* callback re-entrancy violation` guard, entered with callback class 1 —
-the error/logging entry point at `image+0x6ce8266`, which formats a message and
-calls the engine's logger. The guard makes re-entrant class-1 entry fatal
-(`_Exit(1000)`) rather than benignly skipped. `RBXRT_WALK=1` dumps the guest RBP
-chain at the fatal call and shows why: the stack is in **unbounded recursion**
-through the `TelemetryBridge` wrapper family (`+0x6d40a4a`, `+0x6d40b06`) and the
-`std::function`-style invoker at `+0x2de36f0` (`+0x2de37a6`). Those wrappers are
-the ones the `RBXRT_PATCH_REG` workaround forces down their "context present"
-path, so the engine believes it has thread telemetry state it does not have.
-
-The remaining gap is therefore the Java side and the engine's own task
-scheduler/thread telemetry context — the engine expects state a real
-`GameActivity`/Roblox client would have supplied (it already reports
-`[JNIMain] DeviceStaticParams is null.` during `JNI_OnLoad`).
-
-### Graphics platform
-
-The runtime does not reimplement a GPU driver and does not use Wine or a VM. It
-loads the *host's* real window system and GPU stack and binds the engine's
-imports to it:
-
-- **Host dynamic linking.** `rbxrt` is dynamically linked (the C library is
-  mapped because the Go runtime uses it for DNS/user lookups), so the real
-  `dlopen`/`dlsym` are present in the process. `internal/hostabi/hostdl.go`
-  locates libc in `/proc/self/maps`, reads its own dynamic symbol table to find
-  those entry points, and calls them through the same guest-call trampoline used
-  everywhere else. `libX11.so.6`, `libEGL.so.1` and `libGLESv2.so.2` are opened
-  with `RTLD_NOW|RTLD_GLOBAL`.
-- **Real window.** `InitGraphics` calls `XOpenDisplay`, `XCreateSimpleWindow`,
-  `XMapWindow` and friends, yielding a genuine X11 window (an XID) on the host
-  display.
-- **Direct binding.** Every `gl*`/`egl*` import the engine has is bound straight
-  into its GOT to the Mesa implementation (see `RegisterRawSymbol` and the
-  resolver hook in `internal/hostabi/registry.go`). No thunk sits between the
-  guest and the driver, which is what makes floating-point parameters and the
-  wider argument lists (`glTexImage2D` takes nine) work at all.
-- **The two that need translating.** `eglGetDisplay` returns the X11 platform
-  display (via `eglGetPlatformDisplayEXT`) so the platform is deterministic even
-  on a Wayland session; `eglCreateWindowSurface` maps the engine's
-  `ANativeWindow` to the X11 window Mesa expects. `ANativeWindow_fromSurface`
-  and the `getWidth`/`getHeight`/`acquire`/`release` accessors are implemented in
-  Go (`internal/hostabi/gfx.go`).
-
-`--launch` enables graphics automatically; `RBXRT_GFX=1` forces it for
-`--entry`, and `RBXRT_GFX=off` disables it. If it cannot come up, the engine's
-graphics calls still abort by name — the runtime never pretends to render.
-
-The layer is verified without the engine by a probe that opens the window,
-creates a GLES 3.2 context and swaps a frame:
-
-```
-RBXRT_GFX_TEST=1 go test ./internal/hostabi -run TestGraphicsProbe -v
-```
-
-On this host it reports the real driver (e.g. `Mesa Intel(R) UHD Graphics`),
-`OpenGL ES 3.2 Mesa`, `EGL 1.5`, and renders one frame into the X11 window.
-
-### Engine builds
-
-Every guest-image offset the runtime patches belongs to one engine build, so
-offsets live in per-build profiles (`cmd/rbxrt/profile.go`) keyed by the client
-version string the engine embeds (e.g. `2.748.0.1527`); `rbxrt load` prints the
-detected build. Each patch also checks the instruction it replaces (a `call`
-before NOPing it, a `je` before NOPing it) and refuses on a mismatch. An
-unknown build gets no patches at all, with a warning.
-
-The current target, **2.748.0.1527**, boots through `StartAppWithParams` with no
-image patches: the telemetry recursion below does not occur in it.
-
-### Telemetry stop-gap (2.734.0.917 only)
-
-The engine's eight `TelemetryBridge` JNI natives consult a per-thread
-task/telemetry context (`0x2de3c50` reads `ctx2+0x28`) that the engine's
-scheduler creates lazily. Until that scheduler runs, the natives take their
-"context absent" path, dispatch through the object-table slot they themselves
-occupy, and recurse until the guest stack is exhausted.
-
-`RBXRT_PATCH_REG` controls the documented stop-gap applied before any guest code
-runs (constructors included — their worker threads reach telemetry too):
-
-- unset/`global` (default) — force `0x2de3c50` to report a context. `JNI_OnLoad`
-  completes; the engine's thread telemetry registration is bypassed.
-- `family` — NOP only the eight per-wrapper branches. Insufficient on its own:
-  the registration path it leaves enabled still aborts.
-- `off` — no patch; reproduces the recursion and the resulting crash.
-
-Every enabled variant prints a warning: this is a stop-gap, not the engine's
-natural behaviour, and it must be removed once the scheduler is up.
-- [x] `internal/fetch` — APKPure mirror download, accepted only after size,
-      whole-file signature and Roblox certificate checks (see Quick start).
-- [x] CLI — `fetch`, `run`, `doctor`, alongside `verify`/`manifest`/`inspect`/
-      `engine`/`load`.
-
-## Debugging
-
-The runtime is quiet by default; each diagnostic below is opt-in.
-
-```
-RBXRT_DEBUG_MEM=1    # guest stack, guard state, arena, map, exit-time frames
-RBXRT_DEBUG_JNI=1    # per-call JNI entry trace (capped at 300 calls)
-RBXRT_DEBUG_TLS=1    # per-call pthread_getspecific / guest-stack depth trace
-RBXRT_DEBUG_LOOPER=1 # ALooper prepare/addFd/poll trace
-RBXRT_DEBUG_ASSET=1  # AAssetManager open/lookup and openFileDescriptor trace
-RBXRT_DEBUG_CONFIG=1 # AConfiguration synthesis trace
-RBXRT_DEBUG_GFX=1    # X11 window, EGL display and window-surface mapping trace
-RBXRT_DEBUG_NET=1    # getaddrinfo and socket traffic (=full dumps whole transfers)
-RBXRT_DEBUG_FS=1     # open/fopen/stat/lstat/access by path, and fread per fd, with results
-RBXRT_WALK=1         # dump the guest RBP chain at a fatal exit/abort
-RBXRT_PATCH_REG=off  # disable the telemetry stop-gap to reproduce the crash (2.734)
-RBXRT_GOMAXPROCS=<n> # Go P pool size (default 256; see cmd/rbxrt/main.go)
-RBXRT_BREAK=<offs>   # int3 at these image offsets (hex, comma-separated), for gdb
-RBXRT_GDB_STOP=<file> # write the image bias to <file> and SIGTRAP once, for gdb scripts
-```
-
-The engine writes its own log to `<data>/appData/logs/*_last.log`. Its FLog
-channels are fast flags, passed in through the client settings:
-
-```
-RBXRT_CLIENT_SETTINGS='{"FLogGraphics":"6","FLogSurfaceController":"6"}'
-```
-
-Shader work: `MESA_SHADER_DUMP_PATH=<dir>` (a Mesa variable) dumps every
-shader the engine compiles; `RBXRT_GFX_TEST=1 RBXRT_GLSL_CORPUS=<dir> go test
-./internal/hostabi -run TestGLSLRelaxCorpus` then checks them all against the
-host driver. `RBXRT_BREAK` needs gdb to launch rbxrt itself (Yama
-`ptrace_scope` 1 forbids attaching).
-
-Boot inputs (`--launch`):
-
-```
-RBXRT_BOOT=1                # play the Java side: flags, settings, app bridge
-RBXRT_DATA=<dir>            # app data directory; becomes the engine's cwd
-RBXRT_BOOT_WATCHDOG=<secs>  # report stuck guest threads after this long (30)
-RBXRT_LAUNCH_HOLD_SECS=<n>  # keep rendering this long after boot (15)
-RBXRT_HOLD_DUMP=1           # at the end of the hold, list every guest thread
-RBXRT_OFFLINE=1             # don't fetch the live AndroidApp flags (use the cache)
-RBXRT_CLIENT_SETTINGS_FILE=<f> # use a saved {"applicationSettings":{...}} instead
-RBXRT_LUA_APP_LOGGED_IN=1   # boot as if a user were logged in (StartLuaAppDM)
-```
-
-With `RBXRT_BOOT` the data directory is prepared from the APK (`assets/content`,
-`assets/android`, `assets/ExtraContent`, and `exe/cacert.pem` from the APK's
-`assets/ssl/cacert.pem`) and becomes the working directory before any guest code
-runs, so the engine's `cache/`, `http/` and `appData/` stay out of the directory
-rbxrt was started from.
-
-Graphics inputs:
-
-```
-RBXRT_GFX=off               # disable the graphics layer even for --launch
-RBXRT_GFX=x11               # force the graphics layer on (e.g. with --entry)
-RBXRT_WINDOW_WIDTH=<n>      # window width in pixels (default 1280)
-RBXRT_WINDOW_HEIGHT=<n>     # window height in pixels (default 720)
-RBXRT_DISPLAY=wayland|x11|auto  # window system (default auto: Wayland if available)
-```
-
-Input inputs:
-
-```
-RBXRT_DEBUG_INPUT=1         # log every mouse/key/text event delivered to the engine
-RBXRT_DEBUG_AUDIO=1         # log AAudio streams (open, start, stop, errors)
-RBXRT_DEBUG_DL=1            # log every guest dlopen/dlsym and its result
-RBXRT_INPUT_REPLAY=<script> # scripted input for testing, ';'-separated steps
-                            # "<wait ms>:click:x,y", "<ms>:drag:x1,y1,x2,y2",
-                            # "<ms>:key:<evdev code>", e.g.
-                            # "28000:click:640,382;4000:click:640,308;500:key:35"
-```
-
-Asset and device inputs for the app-entry probe:
-
-```
-RBXRT_APK=<path>            # APK whose assets/ back AAssetManager (e.g. roblox.apk)
-RBXRT_ASSETS=<dir>          # alternatively, a directory of loose assets
-RBXRT_SCREEN_WIDTH_DP=<n>   # logical width reported by AConfiguration (default 960)
-RBXRT_SCREEN_HEIGHT_DP=<n>  # logical height reported by AConfiguration (default 540)
-```
-
-Language and country are derived from `LC_ALL`/`LANG` (e.g. `en_US.UTF-8` →
-`en`/`US`).
-
-## Development
-
-```
-go test ./...            # all tests
-./scripts/fixtures.sh    # regenerate internal/apk/testdata with Android SDK tools
-```
-
-JNI/ART framework calls that we cannot honour are designed to fail loudly
-rather than fake success; native code paths that cannot work on bare Linux are
-shimmed (or refused) until implemented.
-
-> **Legal note:** Roblox Corporation prohibits third-party clients. Requesting,
-> downloading, or running Roblox through this runtime may breach Roblox's Terms
-> of Service and result in account termination. Use only on accounts you are
-> willing to lose.
+rbxrt is free software under the [GNU General Public License v3.0](LICENSE).
+Roblox and the Roblox app are property of Roblox Corporation and are not part
+of this project.

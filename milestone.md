@@ -43,9 +43,8 @@ RBXRT_APK=roblox.apk RBXRT_DATA=/path/to/data RBXRT_BOOT=1 \
 
 What it took (runtime fixes, not engine patches — 2.748 needs no image patches):
 
-- **Build profiles.** Offsets are keyed by the engine's embedded version string;
-  patches check the bytes they replace. 2.748 needs neither the telemetry
-  stop-gap nor any of the 2.734 patches.
+- **No image patches.** 2.748 needs neither the telemetry stop-gap nor any of
+  the 2.734 patches; the patching code has since been removed.
 - **Boot order.** The native flag provider is initialized before
   `nativeGameGlobalInit`, as `Application.onCreate` does on Android.
 - **Libc semantics.** Raw-syscall wrappers returned `-errno`; they now return
