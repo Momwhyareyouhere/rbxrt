@@ -4,6 +4,7 @@ import (
 	"debug/elf"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -671,6 +672,16 @@ func holdForRendering(im *loader.Image, pump func() int) {
 		fmt.Printf("launch: holding %ds for the engine to act on the surface\n", secs)
 	}
 	deadline := time.Now().Add(time.Duration(secs) * time.Second)
+
+	// SIGUSR1 prints where every guest thread is (its last host call and
+	// frame chain) without stopping the process: the tool for a frozen run.
+	usr1 := make(chan os.Signal, 1)
+	signal.Notify(usr1, syscall.SIGUSR1)
+	go func() {
+		for range usr1 {
+			dumpGuestThreads(im, "SIGUSR1")
+		}
+	}()
 
 	// The sampler runs on a goroutine of its own: a pump that blocks inside
 	// the engine must not also blind the diagnostics, which exist precisely

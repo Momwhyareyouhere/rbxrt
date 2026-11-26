@@ -1573,24 +1573,40 @@ var (
 //go:noinline
 func goSemInit(sem, pshared, value uintptr) int {
 	*(*uint32)(unsafe.Pointer(sem)) = uint32(value)
+	*(*uint32)(unsafe.Pointer(sem + 4)) = 0
 	return 0
 }
+
+// Semaphores. bionic's sem_t is 16 bytes and only reached through these
+// functions, so the runtime owns its layout: the count at offset 0 and the
+// number of sleeping waiters at offset 4. A waiter sleeps in the kernel
+// (futex) instead of spinning: FMOD's mixer waits on a semaphore every audio
+// period, and a spin there costs a whole core for as long as a game runs.
 
 //go:noinline
 func goSemWait(sem uintptr) int {
 	p := (*uint32)(unsafe.Pointer(sem))
+	waiters := (*uint32)(unsafe.Pointer(sem + 4))
 	for {
 		v := atomic.LoadUint32(p)
-		if v > 0 && atomic.CompareAndSwapUint32(p, v, v-1) {
-			return 0
+		if v > 0 {
+			if atomic.CompareAndSwapUint32(p, v, v-1) {
+				return 0
+			}
+			continue
 		}
-		runtime.Gosched()
+		atomic.AddUint32(waiters, 1)
+		futexDo(sem, futexOpWait|futexPrivate, 0, 0) // sleeps only while the count is 0
+		atomic.AddUint32(waiters, ^uint32(0))
 	}
 }
 
 //go:noinline
 func goSemPost(sem uintptr) int {
 	atomic.AddUint32((*uint32)(unsafe.Pointer(sem)), 1)
+	if atomic.LoadUint32((*uint32)(unsafe.Pointer(sem+4))) != 0 {
+		futexDo(sem, futexOpWake|futexPrivate, 1, 0)
+	}
 	return 0
 }
 
