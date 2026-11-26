@@ -325,6 +325,21 @@ func seedJavaValues() {
 	// stamps its records with.
 	hostabi.SetFakeMethodFunc(classLogging, "getProcessTimestamp",
 		func() uintptr { return uintptr(time.Since(processStart).Milliseconds()) })
+
+	// FMOD's Java half (org.fmod.FMOD). Its native side asks these static
+	// methods which output to use and at what rate before it opens a stream;
+	// answered as a device with AAudio, which the runtime provides on the
+	// host's sound server (internal/hostabi/aaudio.go). checkInit reports
+	// that the app called FMOD.init(context), which the Java app does at start.
+	const classFMOD = "org/fmod/FMOD"
+	hostabi.SetFakeMethodResult(classFMOD, "checkInit", 1)
+	hostabi.SetFakeMethodResult(classFMOD, "supportsAAudio", 1)
+	hostabi.SetFakeMethodResult(classFMOD, "supportsLowLatency", 1)
+	hostabi.SetFakeMethodResult(classFMOD, "lowLatencyFlag", 1)
+	hostabi.SetFakeMethodResult(classFMOD, "proAudioFlag", 0)
+	hostabi.SetFakeMethodResult(classFMOD, "isBluetoothOn", 0)
+	hostabi.SetFakeMethodResult(classFMOD, "getOutputSampleRate", 48000)
+	hostabi.SetFakeMethodResult(classFMOD, "getOutputBlockSize", 480)
 }
 
 // stageAPKTree extracts every APK entry under prefix into dstDir, keeping the

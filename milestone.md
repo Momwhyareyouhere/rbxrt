@@ -182,6 +182,25 @@ first argument as if they were the `A` (jvalue array) form, and `byte[]` was
 not implemented, so every `String.getBytes("UTF-8")` (the engine's jstring →
 std::string path) produced an empty string.
 
+## Android NDK platform layer
+
+The platform libraries the engine loads at run time are provided by the
+runtime: `dlopen("libaaudio.so" | "libandroid.so" | "libmediandk.so")` returns a
+runtime handle, and `dlsym` on it resolves only implemented functions (others
+are NULL, as on an older Android release, never a trap).
+
+- AAudio → PulseAudio/PipeWire (`internal/hostabi/aaudio.go`): FMOD's
+  callback-mode output stream, 48 kHz stereo float or int16, 10 ms bursts,
+  called on a dedicated guest thread and paced by `pa_simple_write`. FMOD's Java
+  capability queries (`org.fmod.FMOD.supportsAAudio` etc.) are answered so it
+  picks AAudio.
+- Media (`media.go`): `AMediaFormat` store; codecs and image readers
+  unavailable.
+- Thermal (`thermal.go`): headroom = hottest zone / its critical trip point.
+- libc networking and friends (`libc4.go`).
+
+Only five `long double` math helpers are still bound to traps.
+
 ## Known open issues
 
 - Text typed into a focused text box shows up only after the box loses focus:
@@ -190,8 +209,13 @@ std::string path) produced an empty string.
 - Signing in needs a Roblox session; the runtime does not provide one.
 - The engine's own Vulkan renderer does not load ("Unable to load Vulkan API");
   it falls back to GLES, which runs on Vulkan through zink anyway.
-- No audio (FMOD initialization fails: no Android audio output).
+- Audio is untested in the engine: FMOD opens its output only when a game
+  runs, which needs a signed-in session. AAudio itself works on the host
+  (`TestAAudioPlayback`). The microphone is not supported (input streams are
+  refused).
+- No hardware video decoding: `AMediaCodec` reports no codec, as a device
+  without one does.
 
-Current focus: audio.
+Current focus: signing in (a Roblox session), which gates games and audio.
 
 Last updated: 2026-11-26

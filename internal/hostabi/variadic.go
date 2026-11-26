@@ -1,6 +1,9 @@
 package hostabi
 
-import "unsafe"
+import (
+	"fmt"
+	"unsafe"
+)
 
 // Variadic host functions. A thunk cannot know a variadic guest call's argument
 // types, so the thunk instead sets R10 to a function id and jumps to
@@ -30,6 +33,7 @@ const (
 	vkSscanf
 	vkFscanf
 	vkScanf
+	vkSyslog
 )
 
 // varDesc describes one variadic function: how many fixed integer arguments
@@ -47,9 +51,10 @@ var variadicDescs = []varDesc{
 	{vkSscanf, 2},   // sscanf(str, fmt, ...)
 	{vkFscanf, 2},   // fscanf(stream, fmt, ...)
 	{vkScanf, 1},    // scanf(fmt, ...)
+	{vkSyslog, 2},   // syslog(priority, fmt, ...)
 }
 
-var variadicNames = []string{"snprintf", "sprintf", "printf", "fprintf", "sscanf", "fscanf", "scanf"}
+var variadicNames = []string{"snprintf", "sprintf", "printf", "fprintf", "sscanf", "fscanf", "scanf", "syslog"}
 
 var variadicID = func() map[string]int {
 	m := make(map[string]int, len(variadicNames))
@@ -95,6 +100,10 @@ func goVariadic(id, save, overflow uintptr) int {
 		return runFscanf(fixed[0], fixed[1], v)
 	case vkScanf:
 		return runFscanf(stdinPtr, fixed[0], v)
+	case vkSyslog:
+		out := formatC(cstr(fixed[1]), v)
+		writeStderrRaw(fmt.Sprintf("rbxrt: syslog<%d>: %s\n", int32(fixed[0]), out))
+		return 0
 	}
 	return 0
 }

@@ -14,6 +14,9 @@ import (
 // links against. Each directory is scanned by base name.
 var searchPaths []string
 
+// debugDL logs every guest dlopen/dlsym and its result (RBXRT_DEBUG_DL).
+var debugDL = os.Getenv("RBXRT_DEBUG_DL") != ""
+
 // SetSearchPaths replaces the directories dlopen searches.
 func SetSearchPaths(paths []string) { searchPaths = append([]string(nil), paths...) }
 
@@ -47,9 +50,20 @@ func setErr(format string, args ...any) uintptr {
 
 // dlopen finds and loads a DSO by base name in the search paths.
 func dlopen(name string, flags uintptr) uintptr {
+	h := dlopenImpl(name, flags)
+	if debugDL {
+		fmt.Fprintf(os.Stderr, "rbxrt: dl: dlopen(%q) -> %#x\n", name, h)
+	}
+	return h
+}
+
+func dlopenImpl(name string, flags uintptr) uintptr {
 	if name == "" {
 		setErr("rbxrt: dlopen: NULL path")
 		return 0
+	}
+	if h := hostabi.VirtualLibrary(name); h != 0 {
+		return h // provided by the runtime itself (AAudio, NDK media, ...)
 	}
 	for _, dir := range searchPaths {
 		p := filepath.Join(dir, filepath.Base(name))
@@ -76,6 +90,14 @@ func dlopen(name string, flags uintptr) uintptr {
 
 // dlsym resolves a symbol either against a loaded image or the host library.
 func dlsym(handle uintptr, name string) uintptr {
+	a := dlsymImpl(handle, name)
+	if debugDL {
+		fmt.Fprintf(os.Stderr, "rbxrt: dl: dlsym(%#x, %q) -> %#x\n", handle, name, a)
+	}
+	return a
+}
+
+func dlsymImpl(handle uintptr, name string) uintptr {
 	if name == "" {
 		setErr("rbxrt: dlsym: NULL symbol name")
 		return 0
@@ -87,6 +109,14 @@ func dlsym(handle uintptr, name string) uintptr {
 			return a
 		}
 		if a, ok := hostabi.Lookup(name); ok {
+			return a
+		}
+		setErr("rbxrt: dlsym: %s not found", name)
+		return 0
+	}
+
+	if hostabi.IsVirtualLibrary(handle) {
+		if a, ok := hostabi.VirtualSymbol(name); ok {
 			return a
 		}
 		setErr("rbxrt: dlsym: %s not found", name)

@@ -99,3 +99,42 @@ func goFindLibrary(name uintptr) uintptr {
 }
 
 var _ = unsafe.Pointer(nil)
+
+// Platform libraries the runtime provides itself. The engine dlopen()s these
+// at run time (FMOD loads libaaudio.so; the engine probes libandroid.so and
+// libmediandk.so for optional entry points) rather than linking them. They
+// have no file to map: dlopen hands back a handle, and dlsym on it finds a
+// name only if the runtime implements it, so a missing optional function looks
+// exactly like it does on an older Android release (NULL), never like a trap.
+var virtualLibs = []string{"libandroid.so", "libmediandk.so", "libaaudio.so"}
+
+const virtualLibBase = 0x5a5a0000
+
+// VirtualLibrary returns the handle for a runtime-provided library, matched by
+// base name, or 0 if name is not one.
+func VirtualLibrary(name string) uintptr {
+	for i := len(name) - 1; i >= 0; i-- {
+		if name[i] == '/' {
+			name = name[i+1:]
+			break
+		}
+	}
+	for i, n := range virtualLibs {
+		if n == name {
+			return virtualLibBase + uintptr(i)*0x100
+		}
+	}
+	return 0
+}
+
+// IsVirtualLibrary reports whether h is a VirtualLibrary handle.
+func IsVirtualLibrary(h uintptr) bool {
+	return h >= virtualLibBase && h < virtualLibBase+uintptr(len(virtualLibs))*0x100 && h%0x100 == 0
+}
+
+// VirtualSymbol resolves dlsym on a runtime-provided library: only names the
+// runtime really implements.
+func VirtualSymbol(name string) (uintptr, bool) {
+	a, implemented := Lookup(name)
+	return a, implemented
+}

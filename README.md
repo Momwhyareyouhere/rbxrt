@@ -118,10 +118,25 @@ RBXRT_TRUSTED_CERTIFICATES=/path/to/list.json rbxrt verify roblox.apk
 - [x] graphics platform — `ANativeWindow` plus EGL/GLES. The runtime opens a
       native Wayland or X11 window and drives the host's Mesa driver (`libEGL`/`libGLESv2`)
       directly; see *Graphics platform* below.
-- [ ] Android NDK platform layer — `ALooper`, `AAssetManager`,
-      `AConfiguration` and graphics are implemented; audio, media and networking
-      remain. These are what the next entry point (the engine's own native
-      threads and renderer) needs first.
+- [x] Android NDK platform layer — `ALooper`, `AAssetManager`,
+      `AConfiguration`, graphics and input, plus:
+      - audio: AAudio (`libaaudio.so`, loaded by FMOD) on the host's PulseAudio
+        or PipeWire server, in FMOD's callback mode; output only, the
+        microphone is never opened;
+      - media (`libmediandk`): a real `AMediaFormat`, and `AMediaCodec` /
+        `AImageReader` answering like a device without that codec (no hardware
+        decoder behind them);
+      - thermal (`AThermal_*`, from `libandroid.so`) from the host's sensors;
+      - networking/libc: `gethostbyname`, `if_nametoindex`/`if_indextoname`,
+        `__sendto_chk`, `__cmsg_nxthdr`, `__pread_chk`, termios, `syslog`,
+        `vasprintf`, `ldiv`, `scalbn`.
+      `libandroid.so`, `libmediandk.so` and `libaaudio.so` are provided to
+      `dlopen` by the runtime; `dlsym` on them finds only implemented names.
+      Not covered: five `long double` helpers (`powl`, `roundl`, `llroundl`,
+      `fmal`, `strtold_l`; Android's x86_64 `long double` is 128-bit) remain
+      traps. FMOD opens audio only once a game runs, so the engine has not
+      exercised the audio path yet; `TestAAudioPlayback` drives it the way FMOD
+      does.
 - [ ] engine task scheduler and JNI method table — the next entry point, and the
       prerequisite for removing the telemetry stop-gap below.
 
@@ -353,6 +368,8 @@ Input inputs:
 
 ```
 RBXRT_DEBUG_INPUT=1         # log every mouse/key/text event delivered to the engine
+RBXRT_DEBUG_AUDIO=1         # log AAudio streams (open, start, stop, errors)
+RBXRT_DEBUG_DL=1            # log every guest dlopen/dlsym and its result
 RBXRT_INPUT_REPLAY=<script> # scripted input for testing, ';'-separated steps
                             # "<wait ms>:click:x,y", "<ms>:drag:x1,y1,x2,y2",
                             # "<ms>:key:<evdev code>", e.g.
