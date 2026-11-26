@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,10 +18,13 @@ import (
 // declares them. They are spelled the way the engine spells them in its
 // FindClass/GetMethodID calls; a name that appears twice here is a typo.
 const (
-	classGLJava    = "com/roblox/engine/jni/NativeGLJavaInterface"
-	classDevice    = "com/roblox/engine/jni/model/DeviceStaticParams"
-	classPlatform  = "com/roblox/engine/jni/model/PlatformParams"
-	classStartApp  = "com/roblox/engine/jni/autovalue/StartAppParams"
+	classGLJava   = "com/roblox/engine/jni/NativeGLJavaInterface"
+	classDevice   = "com/roblox/engine/jni/model/DeviceStaticParams"
+	classPlatform = "com/roblox/engine/jni/model/PlatformParams"
+	classStartApp = "com/roblox/engine/jni/autovalue/StartAppParams"
+
+	androidSDKInt  = 34   // Build.VERSION.SDK_INT reported to the engine
+	androidRelease = "14" // Build.VERSION.RELEASE
 	classStartGame = "com/roblox/engine/jni/autovalue/StartGameParams"
 	classInitArgs  = "com/roblox/engine/jni/autovalue/InitParams"
 	classUser      = "com/roblox/engine/jni/user/NativeUserJavaInterface"
@@ -151,6 +155,18 @@ func setJavaStringValues(im *loader.Image) {
 // input capabilities.
 func seedJavaValues() {
 	str := hostabi.NewJavaString
+
+	// The Android release the "device" runs. GameActivity and the app read
+	// android.os.Build.VERSION.SDK_INT; at 0 the app shows "Roblox no longer
+	// supports Android 6 and 7" instead of starting. Android 14 (API 34) is a
+	// current release the client supports.
+	hostabi.SetFakeField("android/os/Build$VERSION", "SDK_INT", androidSDKInt)
+	hostabi.SetFakeField("android/os/Build$VERSION", "RELEASE", str(androidRelease))
+	// Native code reads the same facts from system properties.
+	hostabi.SetSystemProperty("ro.build.version.sdk", strconv.Itoa(androidSDKInt))
+	hostabi.SetSystemProperty("ro.build.version.release", androidRelease)
+	hostabi.SetSystemProperty("ro.build.version.codename", "REL")
+	hostabi.SetSystemProperty("ro.product.cpu.abi", "x86_64")
 
 	// The device, as android.os.Build reports it.
 	dev := hostabi.NewFakeObject(classDevice)

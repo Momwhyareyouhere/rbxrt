@@ -21,8 +21,8 @@ build in `cmd/rbxrt/profile.go`.
 - [x] 9. EGL initialized on host Mesa: `eglInitialize` / `eglCreateContext` / `eglMakeCurrent` counted > 0
 - [x] 10. Render backend comes up (Mesa zink → Vulkan) and creates a swapchain/surface
 - [x] 11. Engine loads `rbxasset://places/Mobile.rbxl` (place data accepted)
-- [~] 12. First `eglSwapBuffers` with real content (frames presented; no UI drawn yet)
-- [ ] 13. Roblox window launches and shows a rendered frame
+- [x] 12. First `eglSwapBuffers` with real content
+- [x] 13. Roblox window launches and shows a rendered frame
 
 ## Milestone 8 (and 9)
 
@@ -115,81 +115,53 @@ ExtraContent location and working `vsnprintf`/`sscanf`). `RBXRT_DEBUG_FS` now
 also logs each `fread` per descriptor, which is how the byte count above was
 checked.
 
-## Milestone 12 status (in progress)
+## Milestones 12 and 13
 
-With the engine's built-in flag defaults, frames are presented continuously
-(~600 per 15 s hold) but carry only the clear colour (RGB 11,11,11): the
-logged-out app shell sends `ACTION_LOG_IN` to the platform, i.e. asks Android
-for its native Java login screen, and draws nothing itself.
+A default launch shows Roblox's real start screen in the X11 window: the
+Roblox logo, "Create Account" and "Sign In" buttons, Terms/Privacy links, and
+the game-tile backdrop, whose images are downloaded live over HTTPS. It is
+drawn by the engine's GLES renderer on Mesa zink/Vulkan (~38 indexed draws a
+frame) and is identical across 3/3 clean runs.
 
-The live Android settings (25,662 flags from
-`clientsettingscdn.roblox.com/v2/settings/application/AndroidApp`, fetched with
-`RBXRT_FETCH_SETTINGS=1`) set `FIntLuaAppLoginMethod=1`, under which the Lua app
-draws its own login screen - real UI. They also switch the engine to its newer
-startup path, which does not complete here yet:
+```
+RBXRT_APK=base.apk RBXRT_DATA=<dir> RBXRT_BOOT=1 rbxrt load libroblox.so --launch
+```
 
-- `FFlagSlowDownRendering` starts the render job throttled. On a device the
-  throttle is released by performance control's `AppStartRendering` tunable or
-  by a 10 s safety timer (`RenderThrottleTimeout`), which runs on the task
-  scheduler's `TimerTickerJob`. Neither fires in this runtime: the timer is
-  armed (seen under gdb) but its callback never runs.
-- With the throttle overridden off, the render job steps but reports
-  `stepDataModelJob: No DM yet`: the Lua app's DataModel loads (patch verified,
-  `Mobile.rbxl` read) but is never handed to the render job.
+What it took, on top of milestone 11:
 
-Root causes found since (flag bisection with `RBXRT_CLIENT_SETTINGS_FILE`):
-
-- **`FFlagVideoCaptureUseNewService6`** makes `ViewRbx::bindWorkspace` wait on
-  the new video-capture service, which on Android sits on MediaCodec/AImageReader
-  (not provided by this runtime). The render job waits for that bind
-  (`scheduleRender`), the task scheduler's frame never ends, and with it the
-  `TimerTickerJob` that would release the startup throttle - the "timer never
-  fires" above was a consequence.
-- **`DFFlagUseVisBugChecks`** divides by a zero viewport aspect in software
-  occlusion setup (integer divide fault).
-- **Storage directories.** RbxStorage needs the app's cache directory; the boot
-  now passes files/cache/external directories (`nativeSetFilesDirectory`,
-  `nativeSetCacheDirectory`, `nativeSetExternalDirectory`,
-  `nativeSetBaseDataDirectories`), which fixed an `RBXCRASH` ("Path does not
-  exist").
-- With those two flags and `FFlagSlowDownRendering` off, the live settings run
-  cleanly and present ~700 frames per hold. With `FFlagSlowDownRendering` on,
-  the engine still crashes intermittently (varying sites) - not yet understood.
-- The boot no longer calls `nativeAppBridgeStartLuaAppDM` ("initialize with the
-  logged-in user") unless `RBXRT_LUA_APP_LOGGED_IN=1`: the runtime has no
-  session, and claiming one sent the app to a logged-in home whose requests all
-  fail with 401.
-
-Still open: under every configuration the frame carries ~7 draw calls and no
-visible UI; the app reaches `Landing` but its 2D UI is not drawn. Next: find
-why the GUI layer renders nothing.
-
-Runtime fixes made on the way (all with tests):
-
-- **TLS works.** `qsort`/`bsearch` read the guest comparator's full `%rax`; a
-  comparator returning `-1` in `%eax` looked positive, so OpenSSL's cipher
-  table was never sorted and the server's chosen suite was "unknown"
-  (`set_client_ciphersuite`, found by breaking on `ERR_set_debug` under gdb).
-  Every int-returning guest callback now sign-extends from 32 bits. HTTPS to
-  Roblox now succeeds (e.g. `users.roblox.com` answers 401 "Authentication token
-  is missing" for the logged-out app).
-- **Signals.** `sigaction` wrote glibc's 152-byte struct into bionic's 32-byte
-  one (curl's SIGPIPE save tripped the stack protector); `sigset_t` is 8 bytes
-  on LP64 bionic, not 128. Actions are now recorded per signal.
-- **`sscanf %zu`** (and `%j`, `%t`): the engine's memory sampler reads
-  `/proc/self/statm` with it and failed every 100 ms.
-- **Condition variables honour their clock.** `pthread_condattr_setclock` was
-  ignored, so every `steady_clock` wait used a monotonic deadline as a realtime
-  one and timed out at once; interrupted absolute waits now resume.
-- **`nativePostClientSettingsLoadedInitialization3`** is called after the
-  settings, as Java does (it applies them to the app-bridge components).
-- JNI `ExceptionOccurred` answers "none".
+- **JNI field getters.** The dispatcher took every even JNI table index in
+  95..112 (and 145..162) for a setter: `GetBooleanField`, `GetCharField`,
+  `GetIntField` and `GetFloatField` all returned 0, and float results were
+  never placed in `%xmm0`. The engine read `PlatformParams.dpiScale` as 0 and
+  laid the whole UI out at zero size (no UI draw calls at all). The same zeros
+  caused the `DFFlagUseVisBugChecks` divide-by-zero and the intermittent crashes
+  with `FFlagSlowDownRendering` - both gone.
+- **Live client settings by default.** The boot fetches the AndroidApp flags
+  from `clientsettingscdn.roblox.com` (cached; `RBXRT_OFFLINE=1` skips the fetch).
+  With them the Lua app draws its own start screen (`FIntLuaAppLoginMethod=1`);
+  with the built-in defaults it waits for a native Java login screen.
+  One runtime override remains: `FFlagVideoCaptureUseNewService6=False`, since
+  the new video-capture service needs Android's MediaCodec/AImageReader, and
+  binding the workspace waits on it forever (found by bisecting the flags with
+  `RBXRT_CLIENT_SETTINGS_FILE`).
+- **Device facts.** Android 14 (API 34) is reported through
+  `__system_property_get` (`ro.build.version.sdk`, ...), `Build.VERSION`, and the
+  `DeviceInfo` object passed to `nativeSetDeviceInfo` (whose `osVersion` the
+  client parses as the API level). At API 0 the app showed "Roblox no longer
+  supports Android 6 and 7".
+- **Storage directories** (`nativeSetFilesDirectory`, `nativeSetCacheDirectory`,
+  ...) and a **logged-out boot** (no `nativeAppBridgeStartLuaAppDM` unless
+  `RBXRT_LUA_APP_LOGGED_IN=1`).
 
 ## Known open issues
 
-- The live-flags startup path (milestone 12 status above).
-- Logging in needs a Roblox session; the runtime does not provide one.
+- No input yet: mouse and keyboard events are not delivered to the engine, so
+  the start screen cannot be clicked.
+- Signing in needs a Roblox session; the runtime does not provide one.
+- The engine's own Vulkan renderer does not load ("Unable to load Vulkan API");
+  it falls back to GLES, which runs on Vulkan through zink anyway.
+- No audio (FMOD initialization fails: no Android audio output).
 
-Current focus: milestone 12 — complete the live-flags startup path so the Lua login screen draws.
+Current focus: input (touch/mouse/keyboard into the engine), then audio.
 
-Last updated: 2026-11-25
+Last updated: 2026-11-26

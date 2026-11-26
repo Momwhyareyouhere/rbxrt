@@ -1,112 +1,185 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"rbxrt/internal/apk"
-	"rbxrt/internal/engine"
-	"rbxrt/internal/loader"
+	"rbxrt/internal/fetch"
 )
 
-// cmdRun launches a Roblox instance from the given instance directory.
+// An instance directory holds everything one Roblox installation needs:
 //
-//	rbxrt run <instance-dir>       launch a Roblox instance
-func cmdRun(args []string) error {
+//	<instance>/base.apk                   the client, verified before every use
+//	<instance>/lib/x86_64/libroblox.so    the engine, extracted from base.apk
+//	<instance>/data/                      app data: assets, caches, logs
+//
+// rbxrt fetch fills base.apk; rbxrt run fetches it on first use.
+
+func instanceAPK(dir string) string  { return filepath.Join(dir, "base.apk") }
+func instanceLib(dir string) string  { return filepath.Join(dir, "lib", "x86_64", "libroblox.so") }
+func instanceData(dir string) string { return filepath.Join(dir, "data") }
+
+// cmdFetch downloads the latest Roblox APK into an instance directory.
+//
+//	rbxrt fetch <instance-dir>
+func cmdFetch(args []string) error {
 	if len(args) != 1 {
-		return fmt.Errorf("usage: rbxrt run <instance-dir>")
+		return fmt.Errorf("usage: rbxrt fetch <instance-dir>")
 	}
-	instanceDir := args[0]
+	_, err := fetchInto(args[0])
+	return err
+}
 
-	// Find the base.apk in the instance directory
-	apkPath := filepath.Join(instanceDir, "base.apk")
-	if _, err := os.Stat(apkPath); err != nil {
-		return fmt.Errorf("base.apk not found in instance directory: %v", err)
+func fetchInto(dir string) (*fetch.Result, error) {
+	dest := instanceAPK(dir)
+	fmt.Printf("fetch: downloading the latest %s from the mirror (%s)\n", fetch.Package, fetch.MirrorURL(fetch.Package))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	r, err := fetch.Download(ctx, dest, fetch.Options{Progress: progressPrinter(os.Stderr)})
+	fmt.Fprintln(os.Stderr)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("fetch: %s %s (code %d), %d MB\n", fetch.Package, r.VersionName, r.VersionCode, r.Size>>20)
+	fmt.Printf("fetch: signature v%d OK, certificate %s (%s)\n", r.Verification.Scheme, r.Verification.CertSHA256, r.Verification.Subject)
+	fmt.Printf("fetch: sha256 %s\n", r.SHA256)
+	fmt.Printf("fetch: saved %s\n", r.Path)
+	return r, nil
+}
+
+func progressPrinter(w io.Writer) func(done, total int64) {
+	return func(done, total int64) {
+		if total > 0 {
+			fmt.Fprintf(w, "\rfetch: %d / %d MB (%d%%)", done>>20, total>>20, done*100/total)
+		} else {
+			fmt.Fprintf(w, "\rfetch: %d MB", done>>20)
+		}
+	}
+}
+
+// cmdRun launches a Roblox instance: it fetches the client on first use,
+// verifies it, extracts the x86_64 engine, and boots it in a window until it
+// is stopped (Ctrl-C).
+//
+//	rbxrt run <instance-dir> [--update]
+func cmdRun(args []string) error {
+	var dir string
+	update := false
+	for _, a := range args {
+		switch {
+		case a == "--update":
+			update = true
+		case dir == "" && a != "" && a[0] != '-':
+			dir = a
+		default:
+			return fmt.Errorf("usage: rbxrt run <instance-dir> [--update]")
+		}
+	}
+	if dir == "" {
+		return fmt.Errorf("usage: rbxrt run <instance-dir> [--update]")
+	}
+	dir, err := filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
 	}
 
-	// Verify the APK signature and extract it if needed
-	fmt.Printf("Verifying APK: %s\n", apkPath)
+	apkPath := instanceAPK(dir)
+	if _, err := os.Stat(apkPath); os.IsNotExist(err) || update {
+		if !update {
+			fmt.Printf("run: no client in %s yet\n", dir)
+		}
+		if _, err := fetchInto(dir); err != nil {
+			return err
+		}
+	}
+
+	// Verify on every launch: the file on disk is what runs.
 	trusted, err := apk.TrustedCertificates()
 	if err != nil {
 		return err
 	}
 	v, err := apk.Verify(apkPath, trusted)
 	if err != nil {
+		return fmt.Errorf("%s: %w", apkPath, err)
+	}
+	fmt.Printf("run: %s verified (signature v%d, Roblox certificate)\n", apkPath, v.Scheme)
+
+	lib, err := extractEngine(apkPath, instanceLib(dir))
+	if err != nil {
 		return err
 	}
-	fmt.Printf("APK verified: scheme v%d, cert %s\n", v.Scheme, v.CertSHA256)
 
-	// Extract APK if not already done
-	extractDir := filepath.Join(instanceDir, "extracted")
-	if err := os.MkdirAll(extractDir, 0o755); err != nil {
-		return fmt.Errorf("failed to create extract directory: %v", err)
-	}
-
-	// Open the APK for extraction
-	apkArchive, err := apk.OpenArchive(apkPath)
-	if err != nil {
-		return fmt.Errorf("failed to open APK: %v", err)
-	}
-	defer apkArchive.Close()
-
-	// Extract all files from the APK
-	fmt.Printf("Extracting APK to: %s\n", extractDir)
-	for _, entry := range apkArchive.Entries() {
-		dstPath := filepath.Join(extractDir, entry)
-		if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
-			return fmt.Errorf("failed to create directory for %s: %v", entry, err)
-		}
-		if err := apkArchive.Extract(entry, dstPath); err != nil {
-			return fmt.Errorf("failed to extract %s: %v", entry, err)
+	// The launch reads its inputs from the environment (see the README's
+	// boot inputs); an explicit setting by the user wins.
+	setDefault := func(k, v string) {
+		if os.Getenv(k) == "" {
+			os.Setenv(k, v)
 		}
 	}
-	fmt.Printf("APK extraction complete\n")
-
-	// Find libroblox.so in the extracted APK. This runtime is a native x86-64
-	// host, so it can only execute the x86_64 slice of a fat APK.
-	libPath := filepath.Join(extractDir, "lib", "x86_64", "libroblox.so")
-	if _, err := os.Stat(libPath); err != nil {
-		return fmt.Errorf("lib/x86_64/libroblox.so not found in extracted APK: %v", err)
+	setDefault("RBXRT_APK", apkPath)
+	setDefault("RBXRT_DATA", instanceData(dir))
+	setDefault("RBXRT_BOOT", "1")
+	if os.Getenv("RBXRT_LAUNCH_HOLD_SECS") == "" {
+		holdForever = true
 	}
-	fmt.Printf("Found libroblox.so at: %s\n", libPath)
+	// Quit on Ctrl-C / SIGTERM. Relying on Go's default disposition is not
+	// enough once engine threads run: the signal can land on a thread that
+	// is executing guest code, and the default exit never happens. A
+	// subscribed signal is delivered to this goroutine instead.
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		s := <-quit
+		fmt.Printf("\nrun: %v received, quitting\n", s)
+		code := 130 // 128 + SIGINT
+		if s == syscall.SIGTERM {
+			code = 143
+		}
+		os.Exit(code)
+	}()
+	return cmdLoad([]string{lib, "--launch"})
+}
 
-	// Load the library using our existing loader
-	fmt.Printf("Loading libroblox.so...\n")
-	b, err := engine.Open(libPath)
+// extractEngine writes lib/x86_64/libroblox.so from apkPath to dst, unless dst
+// is already newer than the APK. The file is written beside dst and renamed,
+// so an interrupted extraction never leaves a partial library behind.
+func extractEngine(apkPath, dst string) (string, error) {
+	ai, err := os.Stat(apkPath)
 	if err != nil {
-		return err
+		return "", err
 	}
-	defer b.Close()
-
-	b.ClassifyImports()
-
-	loader.InstallHooks()
-	im, err := loader.Load(b, loader.Options{})
+	if li, err := os.Stat(dst); err == nil && li.ModTime().After(ai.ModTime()) && li.Size() > 0 {
+		return dst, nil
+	}
+	a, err := apk.OpenArchive(apkPath)
 	if err != nil {
-		return err
+		return "", err
 	}
-
-	fmt.Printf("Library loaded successfully\n")
-	fmt.Printf("  Bias: 0x%x\n", im.Bias)
-	fmt.Printf("  Base: 0x%x\n", im.Base)
-	fmt.Printf("  Size: %d bytes\n", im.Size)
-	fmt.Printf("  Exports: %d\n", len(im.Exports))
-	fmt.Printf("  Init funcs: %d\n", len(im.InitFuncs))
-
-	// Run constructors/init functions
-	if err := im.RunInit(); err != nil {
-		return err
+	defer a.Close()
+	const entry = "lib/x86_64/libroblox.so"
+	if !a.Has(entry) {
+		return "", fmt.Errorf("%s has no %s: rbxrt needs the x86_64 (universal) APK", apkPath, entry)
 	}
-	fmt.Printf("Constructors executed: %d functions\n", len(im.InitFuncs))
-
-	// TODO: Actually start the Roblox runtime/JNI environment
-	// This would require:
-	// 1. Setting up JVM/JNI environment
-	// 2. Loading Roblox's Java classes from the APK
-	// 3. Calling the appropriate entry points
-	// 4. Handling graphics/audio/input via host abstractions
-
-	fmt.Printf("Roblox instance initialized (runtime startup not yet implemented)\n")
-	return nil
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return "", err
+	}
+	tmp := dst + ".partial"
+	if err := a.Extract(entry, tmp); err != nil {
+		os.Remove(tmp)
+		return "", err
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		return "", err
+	}
+	fmt.Printf("run: extracted %s\n", dst)
+	return dst, nil
 }

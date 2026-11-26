@@ -11,8 +11,9 @@
 //	                               [--jni] calls JNI_OnLoad, [--entry] probes
 //	                               the GameActivity app entry point, [--launch]
 //	                               plays the full lifecycle over real graphics
-//	rbxrt run <instance-dir>       launch a Roblox instance     (planned)
-//	rbxrt doctor                   environment diagnostics      (planned)
+//	rbxrt fetch <instance-dir>     download the latest client, verified
+//	rbxrt run <instance-dir>       fetch (first run), verify, and launch it
+//	rbxrt doctor [instance-dir]    check graphics, network and the instance
 package main
 
 import (
@@ -57,8 +58,12 @@ func main() {
 		err = cmdEngine(os.Args[2:])
 	case "load":
 		err = cmdLoad(os.Args[2:])
+	case "fetch":
+		err = cmdFetch(os.Args[2:])
 	case "run":
 		err = cmdRun(os.Args[2:])
+	case "doctor":
+		err = cmdDoctor(os.Args[2:])
 	case "help", "-h", "--help":
 		usage()
 	default:
@@ -78,7 +83,10 @@ func usage() {
   rbxrt inspect <apk>           print signing certificate details
   rbxrt engine <lib.so> [import NAME...]   ELF import/export/relocation analysis
   rbxrt load <lib.so> [--init] [--trace] [--jni] [--entry] [--launch] [--gfx]  map + relocate + resolve like bionic, run constructors, call JNI_OnLoad, probe the app entry, or play the GameActivity lifecycle over real X11/EGL/GLES
-  rbxrt run <instance-dir>      launch a Roblox instance
+  rbxrt fetch <instance-dir>    download the latest Roblox APK (verified) into the instance
+  rbxrt run <instance-dir> [--update]
+                                fetch on first run, verify, extract the engine and launch it
+  rbxrt doctor [instance-dir]   check platform, graphics, network and the instance
   rbxrt help                    this text
 `)
 }

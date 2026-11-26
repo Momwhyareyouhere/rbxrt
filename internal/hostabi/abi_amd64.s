@@ -365,6 +365,11 @@ ok5:
 		MOVQ R10, AX // Go arg 1: function id
 		MOVQ R11, BX // Go arg 2: register-save base
 		HOSTCALL(·jniTarget(SB))
+		// Get<Float|Double>Field and Call<Float|Double>Method return in
+		// XMM0 under the SysV ABI; the Go dispatcher returns the value's bits
+		// in AX. Mirror them into X0 for every JNI call: callers of integer
+		// returns never read X0, which is caller-saved anyway.
+		MOVQ AX, X0
 		ADDQ $64, SP
 		POPQ R15
 		POPQ R14

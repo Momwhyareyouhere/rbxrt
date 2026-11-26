@@ -11,6 +11,38 @@ Goals:
    user-import, per-instance settings.
 3. **Plugins, Flatpak, AppImage** — packaging and extension points.
 
+## Quick start
+
+```
+go build -o rbxrt ./cmd/rbxrt
+./rbxrt doctor                 # can this machine run it? (graphics, network)
+./rbxrt run ~/rbxrt-instance   # first run downloads the client, then launches it
+```
+
+An *instance* is a directory with one Roblox installation:
+
+```
+<instance>/base.apk                  the client APK (verified before every use)
+<instance>/lib/x86_64/libroblox.so   the engine, extracted from base.apk
+<instance>/data/                     app data: staged assets, caches, logs
+```
+
+- `rbxrt fetch <instance>` downloads the latest client from the APKPure mirror
+  into `base.apk`. The download is written to a temporary file, checked against
+  its advertised size, and verified (whole-file v2/v3 signature, Roblox
+  certificate pin) before it replaces anything; the version, certificate and
+  SHA-256 are printed.
+- `rbxrt run <instance> [--update]` fetches on first run (or with `--update`),
+  verifies the APK, extracts the engine when the APK is newer, and launches it
+  in a window until Ctrl-C. The engine's own log is in
+  `<instance>/data/appData/logs/`.
+- `rbxrt doctor [<instance>]` checks the platform, the X11 display, the real
+  EGL/GLES stack (and whether Mesa runs it on zink/Vulkan), reachability of the
+  settings CDN and the mirror, and the instance's APK and free disk space.
+
+What works today: the Roblox start screen renders. Not yet: input (clicks),
+signing in, audio. See `milestone.md`.
+
 ## Security model
 
 Before anything from an APK is executed it must be **cryptographically proven
@@ -231,8 +263,10 @@ runs (constructors included — their worker threads reach telemetry too):
 
 Every enabled variant prints a warning: this is a stop-gap, not the engine's
 natural behaviour, and it must be removed once the scheduler is up.
-- [ ] `internal/fetch` — APKPure mirror download with digest verification.
-- [ ] CLI (`run`/`doctor`; `verify`/`inspect`/`engine`/`load` exist).
+- [x] `internal/fetch` — APKPure mirror download, accepted only after size,
+      whole-file signature and Roblox certificate checks (see Quick start).
+- [x] CLI — `fetch`, `run`, `doctor`, alongside `verify`/`manifest`/`inspect`/
+      `engine`/`load`.
 
 ## Debugging
 
@@ -276,7 +310,7 @@ RBXRT_DATA=<dir>            # app data directory; becomes the engine's cwd
 RBXRT_BOOT_WATCHDOG=<secs>  # report stuck guest threads after this long (30)
 RBXRT_LAUNCH_HOLD_SECS=<n>  # keep rendering this long after boot (15)
 RBXRT_HOLD_DUMP=1           # at the end of the hold, list every guest thread
-RBXRT_FETCH_SETTINGS=1      # pass the live AndroidApp flags from Roblox's CDN
+RBXRT_OFFLINE=1             # don't fetch the live AndroidApp flags (use the cache)
 RBXRT_CLIENT_SETTINGS_FILE=<f> # use a saved {"applicationSettings":{...}} instead
 RBXRT_LUA_APP_LOGGED_IN=1   # boot as if a user were logged in (StartLuaAppDM)
 ```

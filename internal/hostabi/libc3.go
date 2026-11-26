@@ -177,15 +177,43 @@ func goSystem(cmd uintptr) int {
 	return 0
 }
 
-// __system_property_get always reports the property as empty, which is how a
-// property that is not set behaves.
-//
+// __system_property_get answers from a small table of Android system
+// properties (SetSystemProperty), and reports any other property as empty,
+// which is how bionic answers for a property that does not exist. Engine code
+// reads the platform version this way - GameActivity and the client parse
+// ro.build.version.sdk, and at 0 the app refuses to start ("Roblox no longer
+// supports Android 6 and 7").
+var (
+	sysPropMu sync.Mutex
+	sysProps  = map[string]string{}
+)
+
+// SetSystemProperty defines the value __system_property_get returns for name.
+func SetSystemProperty(name, value string) {
+	sysPropMu.Lock()
+	sysProps[name] = value
+	sysPropMu.Unlock()
+}
+
+// propValueMax is bionic's PROP_VALUE_MAX: the value buffer holds 91 bytes
+// and a NUL.
+const propValueMax = 92
+
 //go:noinline
 func goSystemPropertyGet(name, value uintptr) int {
-	if value != 0 {
-		*(*byte)(unsafe.Pointer(value)) = 0
+	if value == 0 {
+		return 0
 	}
-	return 0
+	sysPropMu.Lock()
+	v := sysProps[cstr(name)]
+	sysPropMu.Unlock()
+	if len(v) > propValueMax-1 {
+		v = v[:propValueMax-1]
+	}
+	b := unsafe.Slice((*byte)(unsafe.Pointer(value)), len(v)+1)
+	copy(b, v)
+	b[len(v)] = 0
+	return len(v)
 }
 
 // --- process ----------------------------------------------------------------

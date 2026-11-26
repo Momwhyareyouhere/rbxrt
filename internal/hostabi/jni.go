@@ -451,16 +451,21 @@ func jniEnvFn(id, env, a1, a2, a3, a4, a5 uintptr) uintptr {
 	switch {
 	case id >= 34 && id <= 63: // Call<Type>Method[V/A]
 		return jniCallInstance(id, a1, a2, jniFirstCallArg(id, a3))
-	case id >= 95 && id <= 112: // Get/Set<Type>Field
-		if id%2 == 1 { // 95 GetObjectField, 97 GetBooleanField, … odd = get
+	case id >= 95 && id <= 112: // Get<Type>Field 95..103, Set<Type>Field 104..112
+		// The JNI table lists the nine getters (Object, Boolean, Byte, Char,
+		// Short, Int, Long, Float, Double) and then the nine setters. An
+		// earlier "odd = get" rule answered every Boolean/Char/Int/Float
+		// field read as a write, so they all read 0 - the engine saw a
+		// PlatformParams.dpiScale of 0 and laid its whole UI out at zero size.
+		if id <= 103 {
 			return jniGetFieldValue(a1, a2)
 		}
 		jniSetFieldValue(a1, a2, a3)
 		return 0
 	case id >= 114 && id <= 143: // CallStatic<Type>Method[V/A]
 		return jniCallStatic(a1, a2, jniFirstCallArg(id, a3))
-	case id >= 145 && id <= 162: // Get/SetStatic<Type>Field
-		if id%2 == 1 {
+	case id >= 145 && id <= 162: // GetStatic<Type>Field 145..153, SetStatic 154..162
+		if id <= 153 {
 			return jniGetStaticFieldValue(a1, a2)
 		}
 		jniSetStaticFieldValue(a1, a2, a3)

@@ -203,14 +203,12 @@ func InitGraphics() error {
 	hostFuncs["eglInitialize"] = goEglInitialize
 	hostFuncs["eglCreateContext"] = goEglCreateContext
 	hostFuncs["eglMakeCurrent"] = goEglMakeCurrent
-	// Under RBXRT_DEBUG_GFX, count draw calls so a run shows whether frames
-	// carry any geometry (reported every 60 swaps by goEglSwapBuffers).
+	// Under RBXRT_DEBUG_GFX, count the draw, blit and framebuffer calls the
+	// engine makes - imported or looked up at run time - and report them every
+	// 60 swaps (gfxcount.go).
 	if debugGFX {
-		glDrawArraysHost = hostDlsym(gfx.gles, "glDrawArrays")
-		glDrawElementsHost = hostDlsym(gfx.gles, "glDrawElements")
-		if glDrawArraysHost != 0 && glDrawElementsHost != 0 {
-			hostFuncs["glDrawArrays"] = goGlDrawArrays
-			hostFuncs["glDrawElements"] = goGlDrawElements
+		if eglGetProcAddressHost = hostDlsym(gfx.egl, "eglGetProcAddress"); eglGetProcAddressHost != 0 {
+			hostFuncs["eglGetProcAddress"] = goEglGetProcAddress
 		}
 	}
 	// GLSL ES compatibility shim; see glsl.go.
@@ -272,6 +270,9 @@ func resolveGPU(name string) (uintptr, bool) {
 		}
 	default:
 		return 0, false
+	}
+	if debugGFX {
+		a = countedGL(name, a)
 	}
 	return a, a != 0
 }
@@ -369,8 +370,7 @@ func goEglMakeCurrent(display, draw, read, ctx uintptr) uintptr {
 //go:noinline
 func goEglSwapBuffers(display, surface uintptr) uintptr {
 	if n := atomic.AddInt64(&eglSwapCount, 1); debugGFX && n%60 == 0 {
-		writeStderrRaw(fmt.Sprintf("rbxrt: gfx: swap %d: %d draw calls in the last 60 frames\n",
-			n, atomic.SwapInt64(&glDrawCount, 0)))
+		writeStderrRaw(fmt.Sprintf("rbxrt: gfx: swap %d: last 60 frames: %s\n", n, glCallCounts()))
 	}
 	r := callHostC(gfx.fnEglSwapBuffers, &[9]uintptr{display, surface})
 	if debugGFX {
@@ -448,19 +448,15 @@ func goANativeWindowAcquire(win uintptr) {}
 
 func goANativeWindowRelease(win uintptr) {}
 
-var (
-	glDrawArraysHost, glDrawElementsHost uintptr
-	glDrawCount                          int64
-)
+var eglGetProcAddressHost uintptr
 
+// goEglGetProcAddress (RBXRT_DEBUG_GFX only) logs each GL/EGL entry point the
+// engine looks up at run time, and hands out the counting draw wrappers for
+// for the counted calls a counting trampoline (gfxcount.go).
+//
 //go:noinline
-func goGlDrawArrays(mode, first, count uintptr) uintptr {
-	atomic.AddInt64(&glDrawCount, 1)
-	return callHostC(glDrawArraysHost, &[9]uintptr{mode, first, count})
-}
-
-//go:noinline
-func goGlDrawElements(mode, count, typ, indices uintptr) uintptr {
-	atomic.AddInt64(&glDrawCount, 1)
-	return callHostC(glDrawElementsHost, &[9]uintptr{mode, count, typ, indices})
+func goEglGetProcAddress(name uintptr) uintptr {
+	n := cstr(name)
+	writeStderrRaw("rbxrt: gfx: eglGetProcAddress(" + n + ")\n")
+	return countedGL(n, callHostC(eglGetProcAddressHost, &[9]uintptr{name}))
 }

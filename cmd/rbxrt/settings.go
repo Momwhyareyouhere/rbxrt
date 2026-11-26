@@ -18,20 +18,20 @@ import (
 const clientSettingsURL = "https://clientsettingscdn.roblox.com/v2/settings/application/AndroidApp"
 
 // clientSettingsJSON returns the payload for nativeInitClientSettings:
-// {"applicationSettings":{...}}. With RBXRT_FETCH_SETTINGS=1 the flags come
-// from the CDN (cached in the data directory, which is also the fallback when
-// the fetch fails); otherwise none are passed and the engine uses its
-// built-in defaults. Fetching is opt-in for now: under the live flags the
-// engine takes its newer startup path (startup render throttle released by
-// performance control, deferred DataModel join), which this runtime does not
-// complete yet, so no frames are presented. RBXRT_CLIENT_SETTINGS overrides
-// individual flags, e.g. {"FLogGraphics":"6"} to enable an FLog channel.
+// {"applicationSettings":{...}}. The flags come from the CDN, as on a device
+// (cached in the data directory, which is also the fallback when the fetch
+// fails); RBXRT_OFFLINE=1 skips the fetch and uses the cache, or the engine's
+// built-in defaults when there is none. The live flags matter: with the
+// built-in defaults the app hands login to a native Java screen this runtime
+// does not have, while the live ones (FIntLuaAppLoginMethod=1) let the Lua app
+// draw its own start screen. runtimeFlagOverrides is applied on top, then
+// RBXRT_CLIENT_SETTINGS (individual flags, e.g. {"FLogGraphics":"6"});
 // RBXRT_CLIENT_SETTINGS_FILE supplies a whole settings document instead.
 func clientSettingsJSON() string {
 	flags := map[string]any{}
 	cache := filepath.Join(rbxrtDataDir(), "ClientAppSettings.json")
 	body, source := []byte(nil), ""
-	fetch := os.Getenv("RBXRT_FETCH_SETTINGS") != ""
+	fetch := os.Getenv("RBXRT_OFFLINE") == ""
 	if f := os.Getenv("RBXRT_CLIENT_SETTINGS_FILE"); f != "" {
 		// A saved settings document ({"applicationSettings":{...}}), used
 		// as-is instead of the CDN: for pinning or bisecting a flag set.
@@ -53,7 +53,7 @@ func clientSettingsJSON() string {
 			fmt.Fprintf(os.Stderr, "rbxrt: client settings: %v\n", err)
 		}
 	}
-	if body == nil && fetch {
+	if body == nil {
 		if b, err := os.ReadFile(cache); err == nil {
 			body, source = b, "cache"
 		}
@@ -68,6 +68,9 @@ func clientSettingsJSON() string {
 			fmt.Fprintf(os.Stderr, "rbxrt: client settings from %s are not valid JSON; using none\n", source)
 			source = ""
 		}
+	}
+	for k, v := range runtimeFlagOverrides {
+		flags[k] = v
 	}
 	if o := os.Getenv("RBXRT_CLIENT_SETTINGS"); o != "" {
 		var overrides map[string]any
@@ -97,4 +100,14 @@ func fetchClientSettings() ([]byte, error) {
 		return nil, fmt.Errorf("%s: HTTP %d", clientSettingsURL, resp.StatusCode)
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+}
+
+// runtimeFlagOverrides turns off features that depend on Android components
+// this runtime does not provide. Each entry says why; remove it once the
+// component exists.
+var runtimeFlagOverrides = map[string]any{
+	// The new video-capture service sits on Android's MediaCodec and
+	// AImageReader. Binding the workspace to the renderer waits on it, so the
+	// render job - and the whole task-scheduler frame - never completes.
+	"FFlagVideoCaptureUseNewService6": "False",
 }

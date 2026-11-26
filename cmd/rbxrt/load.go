@@ -515,6 +515,29 @@ func javaBootKick(im *loader.Image) (pump func() int) {
 		env, settingsCls, hostabi.NewJavaString(dirs["external"]))
 	callArgs("com/roblox/engine/jni/NativeSettingsInterface", "nativeSetBaseDataDirectories",
 		env, settingsCls, hostabi.NewJavaString(dirs["files"]), hostabi.NewJavaString(dirs["cache"]))
+	// The device description Java builds from android.os.Build. The client
+	// parses osVersion as the Android API level ("Android API %d"); unset, it
+	// reads 0 and the app shows "Roblox no longer supports Android 6 and 7".
+	// The values describe this runtime, not any real phone model.
+	const classDeviceInfo = "com/roblox/engine/jni/model/DeviceInfo"
+	w, h := hostabi.WindowSize()
+	for field, value := range map[string]string{
+		"osVersion":         strconv.Itoa(androidSDKInt),
+		"deviceName":        "rbxrt",
+		"manufacturer":      "rbxrt",
+		"appVersion":        activeProfile.version,
+		"country":           deviceCountry(),
+		"displayResolution": fmt.Sprintf("%dx%d", w, h),
+		"networkType":       "wifi",
+		"appBuildVariant":   "Production",
+		"deviceSku":         "",
+		"socModel":          "x86_64",
+		"testDeviceName":    "",
+	} {
+		hostabi.SetFakeField(classDeviceInfo, field, hostabi.NewJavaString(value))
+	}
+	callArgs("com/roblox/engine/jni/NativeSettingsInterface", "nativeSetDeviceInfo",
+		env, settingsCls, hostabi.NewFakeObject(classDeviceInfo))
 	callArgs("com/roblox/engine/jni/NativeGLInterface", "nativeInitClientSettings",
 		env, cls, hostabi.NewJavaString(clientSettingsJSON()),
 		hostabi.NewJavaString(""), hostabi.NewJavaString("production"))
@@ -604,6 +627,10 @@ func javaBootKick(im *loader.Image) (pump func() int) {
 // hold in seconds (default 15, 0 restores the old exit-immediately behaviour),
 // the frame pump (when the Java handshake is enabled) is called every ~16ms,
 // and the EGL counters report what, if anything, rendering got to.
+// holdForever makes holdForRendering run until the process is stopped
+// (rbxrt run), instead of for RBXRT_LAUNCH_HOLD_SECS.
+var holdForever bool
+
 func holdForRendering(im *loader.Image, pump func() int) {
 	secs := 15
 	if s := os.Getenv("RBXRT_LAUNCH_HOLD_SECS"); s != "" {
@@ -613,10 +640,14 @@ func holdForRendering(im *loader.Image, pump func() int) {
 			fmt.Printf("launch: bad RBXRT_LAUNCH_HOLD_SECS %q, using 15\n", s)
 		}
 	}
-	if secs == 0 {
+	if secs == 0 && !holdForever {
 		return
 	}
-	fmt.Printf("launch: holding %ds for the engine to act on the surface\n", secs)
+	if holdForever {
+		fmt.Printf("launch: running; press Ctrl-C to quit\n")
+	} else {
+		fmt.Printf("launch: holding %ds for the engine to act on the surface\n", secs)
+	}
 	deadline := time.Now().Add(time.Duration(secs) * time.Second)
 
 	// The sampler runs on a goroutine of its own: a pump that blocks inside
@@ -635,7 +666,9 @@ func holdForRendering(im *loader.Image, pump func() int) {
 			case <-tick.C:
 			}
 			inits, ctxs, cur, swaps := hostabi.EGLCounts()
-			if inits != last[0] || ctxs != last[1] || cur != last[2] || swaps != last[3] {
+			// Normal play (rbxrt run) prints no per-frame progress lines.
+			quiet := holdForever && os.Getenv("RBXRT_DEBUG_GFX") == ""
+			if !quiet && (inits != last[0] || ctxs != last[1] || cur != last[2] || swaps != last[3]) {
 				fmt.Printf("launch: EGL counts: initialize=%d context=%d makeCurrent=%d swap=%d\n",
 					inits, ctxs, cur, swaps)
 				last[0], last[1], last[2], last[3] = inits, ctxs, cur, swaps
@@ -659,6 +692,9 @@ func holdForRendering(im *loader.Image, pump func() int) {
 	pumps, blocked := 0, 0
 	overdue := make(chan struct{})
 	go func() {
+		if holdForever {
+			return // no deadline to overrun
+		}
 		time.Sleep(time.Duration(secs+3) * time.Second)
 		select {
 		case <-overdue:
@@ -681,7 +717,7 @@ func holdForRendering(im *loader.Image, pump func() int) {
 		}
 		os.Exit(3)
 	}()
-	for time.Now().Before(deadline) {
+	for holdForever || time.Now().Before(deadline) {
 		time.Sleep(16 * time.Millisecond) // ~60 Hz, a frame's worth of pumping
 		if pump != nil {
 			start := time.Now()
@@ -690,7 +726,9 @@ func holdForRendering(im *loader.Image, pump func() int) {
 			}
 			if d := time.Since(start); d > 500*time.Millisecond {
 				blocked++
-				fmt.Printf("launch: pump call did not return for %v (engine blocked?)\n", d.Round(100*time.Millisecond))
+				if !holdForever || os.Getenv("RBXRT_DEBUG_GFX") != "" {
+					fmt.Printf("launch: pump call did not return for %v (engine blocked?)\n", d.Round(100*time.Millisecond))
+				}
 			}
 		}
 	}
@@ -945,4 +983,16 @@ func dumpGuestThreads(im *loader.Image, tag string) {
 				i, ret, hostabi.GuestImageOffset(ret))
 		}
 	}
+}
+
+// deviceCountry is the two-letter country from LC_ALL/LANG (e.g. en_US.UTF-8
+// -> US), as the AConfiguration layer derives it, or "US".
+func deviceCountry() string {
+	for _, k := range []string{"LC_ALL", "LANG"} {
+		v := os.Getenv(k)
+		if i := strings.IndexByte(v, '_'); i >= 0 && len(v) >= i+3 {
+			return strings.ToUpper(v[i+1 : i+3])
+		}
+	}
+	return "US"
 }
