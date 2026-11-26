@@ -368,7 +368,20 @@ func launchGameActivity(im *loader.Image, handle uintptr) error {
 		}
 	}
 	fmt.Printf("launch: lifecycle drove to onSurfaceRedrawNeeded\n")
-	holdForRendering(im, javaBootKick(im))
+	pump := javaBootKick(im)
+	// Mouse and keyboard are delivered on this (the "Java main") thread
+	// between message pumps, where Roblox's Java input layer delivers them.
+	if step := inputDriver(im); step != nil && hostabi.GraphicsEnabled() {
+		inner := pump
+		pump = func() int {
+			step()
+			if inner != nil {
+				return inner()
+			}
+			return 0
+		}
+	}
+	holdForRendering(im, pump)
 	return nil
 }
 

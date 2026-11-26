@@ -153,15 +153,39 @@ What it took, on top of milestone 11:
   ...) and a **logged-out boot** (no `nativeAppBridgeStartLuaAppDM` unless
   `RBXRT_LUA_APP_LOGGED_IN=1`).
 
+## Input
+
+Mouse and keyboard reach the engine through Roblox's own Java-side natives,
+found by reading the APK's dex (`uk.f` and `h` call them):
+
+- `NativeInputInterface.nativePassMouseMove(x, y, dx, dy)`,
+  `nativePassMouseButton(x, y, down, actionButton-1)`,
+  `nativePassMouseWheel(x, y, vscroll)`, in dp (density 1 here).
+- `NativeGLInterface.nativePassKeyEvent(down, scanCode, keyCode, repeat)`.
+- Text boxes: the engine calls `NativeGLJavaInterface.showKeyboard(box, ...)` /
+  `hideKeyboard()`. Each edit goes to `syncTextboxTextAndCursorPosition2(text,
+  cursor)`. Enter goes to `nativeReturnPressedFromOnScreenKeyboard(box)` +
+  `nativePassText(box, text, true, cursor)`; the engine ignores `nativePassText`
+  when the flag is false.
+
+GameActivity's `onTouchEventNative` accepts events but the app ignores them;
+Roblox does not read input from the native-app-glue queue.
+
+Two JNI-layer fixes were needed: static `CallStatic*Method` calls decoded their
+first argument as if they were the `A` (jvalue array) form, and `byte[]` was
+not implemented, so every `String.getBytes("UTF-8")` (the engine's jstring →
+std::string path) produced an empty string.
+
 ## Known open issues
 
-- No input yet: mouse and keyboard events are not delivered to the engine, so
-  the start screen cannot be clicked.
+- Text typed into a focused text box shows up only after the box loses focus:
+  on Android the engine hides it while the native keyboard overlay would be
+  drawing it.
 - Signing in needs a Roblox session; the runtime does not provide one.
 - The engine's own Vulkan renderer does not load ("Unable to load Vulkan API");
   it falls back to GLES, which runs on Vulkan through zink anyway.
 - No audio (FMOD initialization fails: no Android audio output).
 
-Current focus: input (touch/mouse/keyboard into the engine), then audio.
+Current focus: audio.
 
 Last updated: 2026-11-26

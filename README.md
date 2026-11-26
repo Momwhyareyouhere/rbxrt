@@ -45,8 +45,17 @@ Mesa's Wayland EGL platform); otherwise it uses X11. `RBXRT_DISPLAY=wayland`,
 `x11` or `auto` (the default; falls back to X11/Xwayland if native Wayland
 cannot start) picks one explicitly.
 
-What works today: the Roblox start screen renders. Not yet: input (clicks),
-signing in, audio. See `milestone.md`.
+What works today: the Roblox start screen renders, and the mouse and keyboard
+work. Click buttons, type into text boxes, scroll, and use keys, on Wayland
+and X11. Not yet: signing in, audio. See `milestone.md`.
+
+Input goes in through the same natives Roblox's Android Java layer uses (see
+`cmd/rbxrt/input.go`): `nativePassMouseMove`/`Button`/`Wheel` for the mouse
+(Roblox treats it like a Chromebook mouse), `nativePassKeyEvent` for keys, and
+the on-screen-keyboard path (`showKeyboard` → `syncTextboxTextAndCursorPosition2`
+→ `nativePassText`) for typing into a focused text box. One quirk remains: the
+text in a focused box is drawn only after it loses focus (Android Roblox expects
+its native keyboard overlay to draw it while editing).
 
 ## Security model
 
@@ -103,7 +112,7 @@ RBXRT_TRUSTED_CERTIFICATES=/path/to/list.json rbxrt verify roblox.apk
       looper, reads the asset manager and device configuration, and returns a
       non-null JNI native handle (`initializeNativeCode returned 0x...`).
 - [x] graphics platform — `ANativeWindow` plus EGL/GLES. The runtime opens a
-      real X11 window and drives the host's Mesa driver (`libEGL`/`libGLESv2`)
+      native Wayland or X11 window and drives the host's Mesa driver (`libEGL`/`libGLESv2`)
       directly; see *Graphics platform* below.
 - [ ] Android NDK platform layer — `ALooper`, `AAssetManager`,
       `AConfiguration` and graphics are implemented; audio, media and networking
@@ -333,6 +342,17 @@ RBXRT_GFX=off               # disable the graphics layer even for --launch
 RBXRT_GFX=x11               # force the graphics layer on (e.g. with --entry)
 RBXRT_WINDOW_WIDTH=<n>      # window width in pixels (default 1280)
 RBXRT_WINDOW_HEIGHT=<n>     # window height in pixels (default 720)
+RBXRT_DISPLAY=wayland|x11|auto  # window system (default auto: Wayland if available)
+```
+
+Input inputs:
+
+```
+RBXRT_DEBUG_INPUT=1         # log every mouse/key/text event delivered to the engine
+RBXRT_INPUT_REPLAY=<script> # scripted input for testing, ';'-separated steps
+                            # "<wait ms>:click:x,y", "<ms>:drag:x1,y1,x2,y2",
+                            # "<ms>:key:<evdev code>", e.g.
+                            # "28000:click:640,382;4000:click:640,308;500:key:35"
 ```
 
 Asset and device inputs for the app-entry probe:

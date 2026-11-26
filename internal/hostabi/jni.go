@@ -450,7 +450,7 @@ func jniEnvFn(id, env, a1, a2, a3, a4, a5 uintptr) uintptr {
 	// fills, writes are stored so a later read sees them.
 	switch {
 	case id >= 34 && id <= 63: // Call<Type>Method[V/A]
-		return jniCallInstance(id, a1, a2, jniFirstCallArg(id, a3))
+		return jniCallInstance(id, a1, a2, jniFirstCallArg((id-34)%3, a3))
 	case id >= 95 && id <= 112: // Get<Type>Field 95..103, Set<Type>Field 104..112
 		// The JNI table lists the nine getters (Object, Boolean, Byte, Char,
 		// Short, Int, Long, Float, Double) and then the nine setters. An
@@ -463,7 +463,7 @@ func jniEnvFn(id, env, a1, a2, a3, a4, a5 uintptr) uintptr {
 		jniSetFieldValue(a1, a2, a3)
 		return 0
 	case id >= 114 && id <= 143: // CallStatic<Type>Method[V/A]
-		return jniCallStatic(a1, a2, jniFirstCallArg(id, a3))
+		return jniCallStatic(a1, a2, jniFirstCallArg((id-114)%3, a3))
 	case id >= 145 && id <= 162: // GetStatic<Type>Field 145..153, SetStatic 154..162
 		if id <= 153 {
 			return jniGetStaticFieldValue(a1, a2)
@@ -475,7 +475,7 @@ func jniEnvFn(id, env, a1, a2, a3, a4, a5 uintptr) uintptr {
 		// functions live at 163..170 and have real handlers below; an earlier
 		// 164 lower bound shadowed them, so GetStringUTFChars (169) silently
 		// returned NULL and the guest's std::string assignment crashed on it.
-		return 0
+		return jniArrayFn(id, a1, a2, a3, a4)
 	}
 
 	switch id {
@@ -547,20 +547,24 @@ func jniEnvFn(id, env, a1, a2, a3, a4, a5 uintptr) uintptr {
 
 // jniFirstCallArg normalizes the first argument of the three JNI call forms.
 // Direct calls pass it in the third register; V calls pass a SysV va_list;
-// A calls pass a jobject array. This matters for ClassLoader.findClass, whose
+// A calls pass a jvalue array. This matters for ClassLoader.findClass, whose
 // argument is otherwise mistaken for the va_list address itself.
-func jniFirstCallArg(id, p uintptr) uintptr {
+//
+// form is the entry's position in its Call<Type>Method / ...V / ...A triple:
+// (id-34)%3 for instance calls, (id-114)%3 for static calls. The two ranges
+// are not aligned the same way modulo 3, so the raw id cannot be used.
+func jniFirstCallArg(form, p uintptr) uintptr {
 	if p == 0 {
 		return 0
 	}
-	switch id % 3 {
-	case 2: // Call<Type>MethodV
+	switch form {
+	case 1: // Call<Type>MethodV
 		gp := uint32(ld64(p))
 		if gp < 48 {
 			return ld64(ld64(p+16) + uintptr(gp))
 		}
 		return ld64(ld64(p + 8))
-	case 0: // Call<Type>MethodA
+	case 2: // Call<Type>MethodA
 		return ld64(p)
 	default: // direct varargs form
 		return p

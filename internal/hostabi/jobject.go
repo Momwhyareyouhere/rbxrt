@@ -40,6 +40,7 @@ var (
 	jniFieldValues           = map[[2]string]uintptr{} // (class, name) -> value
 	jniMethodResults         = map[[2]string]uintptr{} // (class, name) -> result
 	jniMethodFuncs           = map[[2]string]func() uintptr{}
+	jniMethodArgFuncs        = map[[2]string]func(arg uintptr) uintptr{}
 	jniReported              = map[string]bool{}
 	jniNativeGLImplementation uintptr
 )
@@ -95,6 +96,27 @@ func SetFakeMethodFunc(class, method string, f func() uintptr) {
 	jniObjMu.Lock()
 	defer jniObjMu.Unlock()
 	jniMethodFuncs[[2]string{class, method}] = f
+}
+
+// SetFakeMethodArgFunc answers a method, instance or static, with a value
+// computed from its first argument (e.g. NativeGLJavaInterface.showKeyboard
+// receives the text box it is shown for). It takes precedence over
+// SetFakeMethodFunc and SetFakeMethodResult.
+func SetFakeMethodArgFunc(class, method string, f func(arg uintptr) uintptr) {
+	jniObjMu.Lock()
+	defer jniObjMu.Unlock()
+	jniMethodArgFuncs[[2]string{class, method}] = f
+}
+
+// jniMethodArgValue runs the argument-taking answer for (class, method), if any.
+func jniMethodArgValue(cls, name string, arg uintptr) (uintptr, bool) {
+	jniObjMu.Lock()
+	f, ok := jniMethodArgFuncs[[2]string{cls, name}]
+	jniObjMu.Unlock()
+	if !ok {
+		return 0, false
+	}
+	return f(arg), true
 }
 
 // SetNativeGLImplementation models NativeGLJavaInterface.setImplementation,
@@ -177,6 +199,16 @@ func jniCallInstance(_ uintptr, obj, mid, arg uintptr) uintptr {
 			return jniFindClassHandle(cstr(arg))
 		}
 	}
+	// String.getBytes(charset): the engine's jstring -> std::string path.
+	if m.name == "getBytes" {
+		if v, ok := jniStringGetBytes(obj); ok {
+			return v
+		}
+	}
+	if v, ok := jniMethodArgValue(cls, m.name, arg); ok {
+		jniTraceCall("method", cls, m.name, v)
+		return v
+	}
 	if v, ok := jniMethodValue(cls, m.name); ok {
 		jniTraceCall("method", cls, m.name, v)
 		return v
@@ -207,6 +239,10 @@ func jniCallStatic(cls, mid, arg uintptr) uintptr {
 	if name == "com/roblox/engine/jni/NativeGLJavaInterface" && m.name == "setImplementation" {
 		jniNativeGLImplementation = arg
 		return 0
+	}
+	if v, ok := jniMethodArgValue(name, m.name, arg); ok {
+		jniTraceCall("static", name, m.name, v)
+		return v
 	}
 	if v, ok := jniMethodValue(name, m.name); ok {
 		jniTraceCall("static", name, m.name, v)

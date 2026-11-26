@@ -369,9 +369,7 @@ func goEglSwapBuffers(display, surface uintptr) uintptr {
 	if n := atomic.AddInt64(&eglSwapCount, 1); debugGFX && n%60 == 0 {
 		writeStderrRaw(fmt.Sprintf("rbxrt: gfx: swap %d: last 60 frames: %s\n", n, glCallCounts()))
 	}
-	if gfx.platform == "wayland" {
-		waylandPump()
-	}
+	pumpWindow()
 	r := callHostC(gfx.fnEglSwapBuffers, &[9]uintptr{display, surface})
 	if debugGFX {
 		fmt.Fprintf(os.Stderr, "rbxrt: gfx: eglSwapBuffers(dpy=%#x surf=%#x) -> %#x (count %d)\n",

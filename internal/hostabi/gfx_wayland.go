@@ -33,6 +33,13 @@ const (
 	wlRegistryBind       = 0
 	wlCompositorCreate   = 0
 	wlSurfaceCommit      = 6
+	wlSurfaceAttach      = 1
+	wlSurfaceDamage      = 2
+	wlSeatGetPointer     = 0
+	wlSeatGetKeyboard    = 1
+	wlPointerSetCursor   = 0
+	wlSeatCapPointer     = 1
+	wlSeatCapKeyboard    = 2
 
 	xdgWmBaseGetXdgSurface  = 2
 	xdgWmBasePong           = 3
@@ -43,6 +50,12 @@ const (
 	wlMarshalFlagNone       = 0
 	waylandCompositorWant   = 4 // wl_compositor version we bind (at most)
 	waylandXdgWmBaseVersion = 1 // xdg-shell version we describe and bind
+
+	// xdg-decoration (unstable v1): ask the compositor to draw the title bar
+	// and window buttons. Without it a Wayland window has no frame at all.
+	zxdgDecorationManagerGetToplevelDecoration = 1
+	zxdgToplevelDecorationSetMode              = 1
+	zxdgToplevelDecorationModeServerSide       = 2
 )
 
 // wlMessage and wlInterface mirror struct wl_message and struct wl_interface
@@ -69,12 +82,22 @@ type waylandState struct {
 	fnMarshalFlags, fnAddListener, fnGetVersion                 uintptr
 	fnEglWindowCreate                                           uintptr
 
-	registryIface, compositorIface, surfaceIface uintptr
+	registryIface, compositorIface, surfaceIface     uintptr
+	seatIface, pointerIface, keyboardIface, shmIface uintptr
+
+	// Input: the first wl_seat, its pointer and keyboard (all version 1).
+	seatName, shmName       uintptr
+	seat, pointer, keyboard uintptr
+	shm                     uintptr
+	cursorSurface           uintptr
+	cursorHotX, cursorHotY  uintptr
 
 	display, registry, compositor, wmBase uintptr
 	surface, xdgSurface, toplevel, eglWin uintptr
 	compositorName, compositorVer         uintptr
 	wmBaseName                            uintptr
+	decorationMgrName                     uintptr
+	decorationMgr, decoration             uintptr
 	configured                            bool
 	fd                                    int
 }
@@ -93,7 +116,15 @@ var (
 	xdgGetSurfaceTypes [2]uintptr
 	xdgGetToplevelType [1]uintptr
 
+	zxdgDecorationMgrIface, zxdgToplevelDecorationIface       wlInterface
+	zxdgDecorationMgrRequests, zxdgToplevelDecorationRequests []wlMessage
+	zxdgToplevelDecorationEvents                              []wlMessage
+	zxdgGetDecorationTypes                                    [2]uintptr
+
 	wlRegistryListener  [2]uintptr
+	wlSeatListener      [1]uintptr
+	wlPointerListener   [5]uintptr
+	wlKeyboardListener  [5]uintptr
 	xdgWmBaseListener   [1]uintptr
 	xdgSurfaceListener  [1]uintptr
 	xdgToplevelListener [2]uintptr
@@ -166,20 +197,50 @@ func buildXdgShell() {
 	wlIface(&xdgSurfaceIface, "xdg_surface", waylandXdgWmBaseVersion, xdgSurfaceRequests, xdgSurfaceEvents)
 	wlIface(&xdgToplevelIface, "xdg_toplevel", waylandXdgWmBaseVersion, xdgToplevelRequests, xdgToplevelEvents)
 
+	zxdgGetDecorationTypes = [2]uintptr{
+		uintptr(unsafe.Pointer(&zxdgToplevelDecorationIface)), uintptr(unsafe.Pointer(&xdgToplevelIface))}
+	zxdgDecorationMgrRequests = []wlMessage{
+		wlMsg("destroy", "", 0),
+		wlMsg("get_toplevel_decoration", "no", uintptr(unsafe.Pointer(&zxdgGetDecorationTypes[0]))),
+	}
+	zxdgToplevelDecorationRequests = []wlMessage{
+		wlMsg("destroy", "", 0),
+		wlMsg("set_mode", "u", 0),
+		wlMsg("unset_mode", "", 0),
+	}
+	zxdgToplevelDecorationEvents = []wlMessage{wlMsg("configure", "u", 0)}
+	wlIface(&zxdgDecorationMgrIface, "zxdg_decoration_manager_v1", 1, zxdgDecorationMgrRequests, nil)
+	wlIface(&zxdgToplevelDecorationIface, "zxdg_toplevel_decoration_v1", 1,
+		zxdgToplevelDecorationRequests, zxdgToplevelDecorationEvents)
+
 	wlRegistryListener = [2]uintptr{mkThunk(funcAddr(wlOnGlobal)), mkThunk(funcAddr(wlOnGlobalRemove))}
 	xdgWmBaseListener = [1]uintptr{mkThunk(funcAddr(xdgOnPing))}
 	xdgSurfaceListener = [1]uintptr{mkThunk(funcAddr(xdgOnSurfaceConfigure))}
 	xdgToplevelListener = [2]uintptr{mkThunk(funcAddr(xdgOnToplevelConfigure)), mkThunk(funcAddr(xdgOnClose))}
+	wlSeatListener = [1]uintptr{mkThunk(funcAddr(wlOnSeatCapabilities))}
+	wlPointerListener = [5]uintptr{
+		mkThunk(funcAddr(wlOnPointerEnter)), mkThunk(funcAddr(wlOnPointerLeave)),
+		mkThunk(funcAddr(wlOnPointerMotion)), mkThunk(funcAddr(wlOnPointerButton)),
+		mkThunk(funcAddr(wlOnPointerAxis))}
+	wlKeyboardListener = [5]uintptr{
+		mkThunk(funcAddr(wlOnKeymap)), mkThunk(funcAddr(wlOnKeyboardEnter)),
+		mkThunk(funcAddr(wlOnKeyboardLeave)), mkThunk(funcAddr(wlOnKey)),
+		mkThunk(funcAddr(wlOnModifiers))}
 	arenaMakeExec()
 }
 
 // wlMarshal sends request opcode on proxy (wl_proxy_marshal_flags). iface is
 // the interface of the object a new_id argument creates (0 if none); the
 // result is that new proxy. At most four request arguments fit.
+//
+// wl_proxy_marshal_flags is variadic, so AL should hold the number of vector
+// registers used. The trampoline leaves the ninth slot (the fourth request
+// argument, 0 when absent) in AX; a nonzero AL only makes the callee spill the
+// vector registers, which is harmless.
 func wlMarshal(proxy, opcode, iface, version uintptr, args ...uintptr) uintptr {
 	var a [9]uintptr
 	a[0], a[1], a[2], a[3], a[4] = proxy, opcode, iface, version, wlMarshalFlagNone
-	copy(a[5:8], args) // a[8] stays 0: AL (vector-register count) must be 0 for the variadic call
+	copy(a[5:9], args)
 	return callHostC(wl.fnMarshalFlags, &a)
 }
 
@@ -214,6 +275,10 @@ func openWayland(w, h int) error {
 		"wl_registry_interface":       &wl.registryIface,
 		"wl_compositor_interface":     &wl.compositorIface,
 		"wl_surface_interface":        &wl.surfaceIface,
+		"wl_seat_interface":           &wl.seatIface,
+		"wl_pointer_interface":        &wl.pointerIface,
+		"wl_keyboard_interface":       &wl.keyboardIface,
+		"wl_shm_interface":            &wl.shmIface,
 	}
 	for name, p := range syms {
 		if *p = hostDlsym(wl.client, name); *p == 0 {
@@ -274,6 +339,36 @@ func openWayland(w, h int) error {
 	wlMarshal(wl.toplevel, xdgToplevelSetTitle, 0, waylandXdgWmBaseVersion, CString("rbxrt"))
 	wlMarshal(wl.toplevel, xdgToplevelSetAppID, 0, waylandXdgWmBaseVersion, CString("rbxrt"))
 
+	// Server-side decorations (title bar, close/minimize/maximize buttons) on
+	// compositors that offer them: KDE, sway, Hyprland, wlroots-based ones.
+	// GNOME does not, and the window stays frameless there.
+	if wl.decorationMgrName != 0 {
+		wl.decorationMgr = wlMarshal(wl.registry, wlRegistryBind, uintptr(unsafe.Pointer(&zxdgDecorationMgrIface)),
+			1, wl.decorationMgrName, CString("zxdg_decoration_manager_v1"), 1, 0)
+		if wl.decorationMgr != 0 {
+			wl.decoration = wlMarshal(wl.decorationMgr, zxdgDecorationManagerGetToplevelDecoration,
+				uintptr(unsafe.Pointer(&zxdgToplevelDecorationIface)), 1, 0, wl.toplevel)
+			if wl.decoration != 0 {
+				wlMarshal(wl.decoration, zxdgToplevelDecorationSetMode, 0, 1, zxdgToplevelDecorationModeServerSide)
+			}
+		}
+	} else if debugGFX {
+		fmt.Fprintf(os.Stderr, "rbxrt: gfx: compositor has no xdg-decoration; window has no title bar\n")
+	}
+
+	// Input. Version 1 of wl_seat (and so of its pointer and keyboard) has
+	// every event we need and nothing we would have to answer.
+	if wl.seatName != 0 {
+		wl.seat = wlMarshal(wl.registry, wlRegistryBind, wl.seatIface, 1,
+			wl.seatName, CString("wl_seat"), 1, 0)
+		if wl.seat != 0 {
+			wlListen(wl.seat, &wlSeatListener[0])
+		}
+	} else {
+		fmt.Fprintf(os.Stderr, "rbxrt: graphics: compositor has no wl_seat; no mouse or keyboard input\n")
+	}
+	waylandLoadCursor()
+
 	// The first commit carries no buffer; the compositor answers it with the
 	// initial configure, which must be acknowledged before a buffer is attached.
 	wlMarshal(wl.surface, wlSurfaceCommit, 0, wlVersion(wl.surface))
@@ -324,6 +419,14 @@ func wlOnGlobal(data, registry, name, iface, version uintptr) {
 		wl.compositorName, wl.compositorVer = uintptr(uint32(name)), uintptr(uint32(version))
 	case "xdg_wm_base":
 		wl.wmBaseName = uintptr(uint32(name))
+	case "wl_seat":
+		if wl.seatName == 0 {
+			wl.seatName = uintptr(uint32(name))
+		}
+	case "wl_shm":
+		wl.shmName = uintptr(uint32(name))
+	case "zxdg_decoration_manager_v1":
+		wl.decorationMgrName = uintptr(uint32(name))
 	}
 }
 
@@ -360,4 +463,166 @@ func xdgOnToplevelConfigure(data, toplevel, width, height, states uintptr) {
 //go:noinline
 func xdgOnClose(data, toplevel uintptr) {
 	syscall.Kill(os.Getpid(), syscall.SIGINT)
+}
+
+// --- input ----------------------------------------------------------------
+
+// waylandLoadCursor prepares the arrow cursor shown over the window. A
+// Wayland client must set its own cursor image; without one the pointer is
+// invisible over the window. It uses the system cursor theme through
+// libwayland-cursor ($XCURSOR_THEME, $XCURSOR_SIZE) and is skipped quietly if
+// that is unavailable.
+func waylandLoadCursor() {
+	if wl.shmName == 0 {
+		return
+	}
+	lib := hostDlopen("libwayland-cursor.so.0", rtldNow|rtldGlobal)
+	if lib == 0 {
+		return
+	}
+	themeLoad := hostDlsym(lib, "wl_cursor_theme_load")
+	getCursor := hostDlsym(lib, "wl_cursor_theme_get_cursor")
+	getBuffer := hostDlsym(lib, "wl_cursor_image_get_buffer")
+	if themeLoad == 0 || getCursor == 0 || getBuffer == 0 {
+		return
+	}
+	wl.shm = wlMarshal(wl.registry, wlRegistryBind, wl.shmIface, 1, wl.shmName, CString("wl_shm"), 1, 0)
+	if wl.shm == 0 {
+		return
+	}
+	var themeName uintptr
+	if t := os.Getenv("XCURSOR_THEME"); t != "" {
+		themeName = CString(t)
+	}
+	theme := callHostC(themeLoad, &[9]uintptr{themeName, uintptr(envInt("XCURSOR_SIZE", 24)), wl.shm})
+	if theme == 0 {
+		return
+	}
+	var cursor uintptr
+	for _, name := range []string{"default", "left_ptr"} {
+		if cursor = callHostC(getCursor, &[9]uintptr{theme, CString(name)}); cursor != 0 {
+			break
+		}
+	}
+	// struct wl_cursor { unsigned image_count; struct wl_cursor_image **images; char *name; }
+	if cursor == 0 || *(*uint32)(unsafe.Pointer(cursor)) == 0 {
+		return
+	}
+	image := *(*uintptr)(unsafe.Pointer(*(*uintptr)(unsafe.Pointer(cursor + 8))))
+	// struct wl_cursor_image { uint32 width, height, hotspot_x, hotspot_y, delay; }
+	iw := *(*uint32)(unsafe.Pointer(image))
+	ih := *(*uint32)(unsafe.Pointer(image + 4))
+	wl.cursorHotX = uintptr(*(*uint32)(unsafe.Pointer(image + 8)))
+	wl.cursorHotY = uintptr(*(*uint32)(unsafe.Pointer(image + 12)))
+	buf := callHostC(getBuffer, &[9]uintptr{image})
+	if buf == 0 {
+		return
+	}
+	surf := wlMarshal(wl.compositor, wlCompositorCreate, wl.surfaceIface, wlVersion(wl.compositor), 0)
+	if surf == 0 {
+		return
+	}
+	wlMarshal(surf, wlSurfaceAttach, 0, wlVersion(surf), buf, 0, 0)
+	wlMarshal(surf, wlSurfaceDamage, 0, wlVersion(surf), 0, 0, uintptr(iw), uintptr(ih))
+	wlMarshal(surf, wlSurfaceCommit, 0, wlVersion(surf))
+	wl.cursorSurface = surf
+}
+
+func wlFixed(v uintptr) float32 { return float32(int32(uint32(v))) / 256 }
+
+//go:noinline
+func wlOnSeatCapabilities(data, seat, caps uintptr) {
+	if caps&wlSeatCapPointer != 0 && wl.pointer == 0 {
+		if wl.pointer = wlMarshal(seat, wlSeatGetPointer, wl.pointerIface, 1, 0); wl.pointer != 0 {
+			wlListen(wl.pointer, &wlPointerListener[0])
+		}
+	}
+	if caps&wlSeatCapKeyboard != 0 && wl.keyboard == 0 {
+		if wl.keyboard = wlMarshal(seat, wlSeatGetKeyboard, wl.keyboardIface, 1, 0); wl.keyboard != 0 {
+			wlListen(wl.keyboard, &wlKeyboardListener[0])
+		}
+	}
+}
+
+//go:noinline
+func wlOnPointerEnter(data, pointer, serial, surface, x, y uintptr) {
+	if wl.cursorSurface != 0 {
+		wlMarshal(pointer, wlPointerSetCursor, 0, 1, uintptr(uint32(serial)), wl.cursorSurface,
+			wl.cursorHotX, wl.cursorHotY)
+	}
+	pointerEvent(PointerMove, 0, wlFixed(x), wlFixed(y))
+}
+
+//go:noinline
+func wlOnPointerLeave(data, pointer, serial, surface uintptr) {
+	x, y := pointerAt()
+	pointerEvent(PointerLeave, 0, x, y)
+}
+
+//go:noinline
+func wlOnPointerMotion(data, pointer, time, x, y uintptr) {
+	pointerEvent(PointerMove, 0, wlFixed(x), wlFixed(y))
+}
+
+//go:noinline
+func wlOnPointerButton(data, pointer, serial, time, button, state uintptr) {
+	x, y := pointerAt()
+	action := PointerUp
+	if uint32(state) == 1 { // WL_POINTER_BUTTON_STATE_PRESSED
+		action = PointerDown
+	}
+	pointerEvent(action, int(uint32(button)), x, y)
+}
+
+//go:noinline
+func wlOnPointerAxis(data, pointer, time, axis, value uintptr) {
+	if uint32(axis) != 0 { // only WL_POINTER_AXIS_VERTICAL_SCROLL
+		return
+	}
+	x, y := pointerAt()
+	pushInput(InputEvent{Kind: InputPointer, Action: PointerScroll, X: x, Y: y,
+		Scroll: wlFixed(value) / 10}) // one wheel notch is 10 units
+}
+
+// The keymap is not needed: keys arrive as evdev codes, which input.go maps
+// to Android key codes. The fd must still be closed.
+//
+//go:noinline
+func wlOnKeymap(data, keyboard, format, fd, size uintptr) {
+	syscall.Close(int(int32(fd)))
+}
+
+//go:noinline
+func wlOnKeyboardEnter(data, keyboard, serial, surface, keys uintptr) {}
+
+// Keys still held when focus moves elsewhere would otherwise stay down in the
+// engine: release the modifiers (the engine sees their key-up).
+//
+//go:noinline
+func wlOnKeyboardLeave(data, keyboard, serial, surface uintptr) {
+	stopRepeat(0)
+	for _, k := range []int{29, 42, 54, 56, 97, 100, 125, 126} {
+		input.mu.Lock()
+		held := input.meta&metaForKey(evdevToAndroid(k)) != 0
+		input.mu.Unlock()
+		if held {
+			keyEvent(k, false)
+		}
+	}
+}
+
+//go:noinline
+func wlOnKey(data, keyboard, serial, time, key, state uintptr) {
+	down := uint32(state) == 1 // WL_KEYBOARD_KEY_STATE_PRESSED
+	keyEvent(int(uint32(key)), down)
+	if down {
+		startRepeat(int(uint32(key)))
+	} else {
+		stopRepeat(int(uint32(key)))
+	}
+}
+
+//go:noinline
+func wlOnModifiers(data, keyboard, serial, depressed, latched, locked, group uintptr) {
+	setCapsLock(uint32(locked)&2 != 0) // xkb "Lock" modifier
 }

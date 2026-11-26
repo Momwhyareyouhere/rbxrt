@@ -565,3 +565,64 @@ ok5:
 		MOVQ AX, ret+16(FP)
 		RET
 
+
+// func callGuestOnGuestStackWide(gs *guestStack, fn uintptr, args *[guestWideArgs]uintptr, fl *[4]uint64) uintptr
+//
+// Calls a guest function with up to guestWideArgs (18) integer arguments and
+// four float arguments, on the guest stack. Integer arguments 1-6 go in DI, SI,
+// DX, CX, R8, R9 and the rest on the stack (12 slots are always written; the
+// callee ignores the unused ones). fl[0..3] are loaded into X0..X3 as raw
+// bits, so a float32 argument is passed as its bits in the low half.
+TEXT ·callGuestOnGuestStackWide(SB), NOSPLIT|NOFRAME, $0-40
+	MOVQ gs+0(FP), R11
+	PUSHQ BX
+	MOVQ R11, BX
+	MOVQ fn+8(FP), R10
+	MOVQ args+16(FP), R12
+	MOVQ fl+24(FP), R13
+	MOVQ SP, 24(BX) // gs.goSP = current Go SP
+	MOVQ 16(BX), SP // switch to the guest stack
+	SUBQ $96, SP
+	MOVQ 48(R12), AX
+	MOVQ AX, 0(SP)
+	MOVQ 56(R12), AX
+	MOVQ AX, 8(SP)
+	MOVQ 64(R12), AX
+	MOVQ AX, 16(SP)
+	MOVQ 72(R12), AX
+	MOVQ AX, 24(SP)
+	MOVQ 80(R12), AX
+	MOVQ AX, 32(SP)
+	MOVQ 88(R12), AX
+	MOVQ AX, 40(SP)
+	MOVQ 96(R12), AX
+	MOVQ AX, 48(SP)
+	MOVQ 104(R12), AX
+	MOVQ AX, 56(SP)
+	MOVQ 112(R12), AX
+	MOVQ AX, 64(SP)
+	MOVQ 120(R12), AX
+	MOVQ AX, 72(SP)
+	MOVQ 128(R12), AX
+	MOVQ AX, 80(SP)
+	MOVQ 136(R12), AX
+	MOVQ AX, 88(SP)
+	MOVQ 0(R13), X0
+	MOVQ 8(R13), X1
+	MOVQ 16(R13), X2
+	MOVQ 24(R13), X3
+	MOVQ 0(R12), DI
+	MOVQ 8(R12), SI
+	MOVQ 16(R12), DX
+	MOVQ 24(R12), CX
+	MOVQ 32(R12), R8
+	MOVQ 40(R12), R9
+	MOVL $4, AX // vector registers used, for a variadic callee
+	CALL R10
+	ADDQ $96, SP
+	MOVQ SP, 16(BX) // gs.sp = guest SP on return
+	MOVQ 24(BX), SP // restore the Go SP
+	POPQ BX
+	MOVQ -8(FS), R14 // restore g before returning to Go
+	MOVQ AX, ret+32(FP)
+	RET
