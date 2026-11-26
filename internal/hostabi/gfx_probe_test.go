@@ -56,7 +56,7 @@ func TestGraphicsProbe(t *testing.T) {
 	if callHostC(eglSwapBuffers, &[9]uintptr{dpy, surf}) == 0 {
 		t.Fatal("eglSwapBuffers failed")
 	}
-	t.Logf("rendered one frame into X11 window %#x (%dx%d)", gfx.xWindow, gfx.width, gfx.height)
+	t.Logf("rendered one frame into %s window %#x (%dx%d)", gfx.platform, gfx.nativeWindow, gfx.width, gfx.height)
 }
 
 // setupProbeContext brings up the graphics layer and makes a GLES 3 context

@@ -94,7 +94,7 @@ func cmdLoad(args []string) error {
 			fmt.Fprintf(os.Stderr, "rbxrt: graphics: gl*/egl* calls will abort by name\n")
 		} else {
 			w, h := hostabi.WindowSize()
-			fmt.Printf("graphics: X11 window bound to libEGL/libGLESv2 (%dx%d), Mesa will render\n", w, h)
+			fmt.Printf("graphics: %s window bound to libEGL/libGLESv2 (%dx%d), Mesa will render\n", hostabi.DisplayPlatform(), w, h)
 		}
 	}
 	im, err := loader.Load(b, loader.Options{Trace: tracing})

@@ -75,7 +75,7 @@ func probeContext() (dpy, surf uintptr, info GraphicsInfo, err error) {
 	return dpy, surf, info, nil
 }
 
-// ProbeGraphics opens the runtime's X11 window and creates a GLES 3 context on
+// ProbeGraphics opens the runtime's window (Wayland or X11) and creates a GLES 3 context on
 // the host's EGL, reporting what the engine will render with. The calling
 // goroutine must be locked to its OS thread (GL state is per thread).
 func ProbeGraphics() (GraphicsInfo, error) {

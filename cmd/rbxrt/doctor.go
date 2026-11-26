@@ -34,18 +34,24 @@ func cmdDoctor(args []string) error {
 		d.fail("platform", fmt.Sprintf("%s/%s; rbxrt runs the x86_64 engine natively and needs linux/amd64", runtime.GOOS, runtime.GOARCH))
 	}
 
-	// Display and graphics: the same path the engine takes (X11 window, EGL
-	// display, GLES 3 context). The window it opens is closed on exit.
-	if os.Getenv("DISPLAY") == "" {
-		d.fail("display", "DISPLAY is not set; rbxrt renders into an X11 window (Xwayland works)")
+	// Display and graphics: the same path the engine takes (Wayland or X11
+	// window, EGL display, GLES 3 context). The window it opens is closed on
+	// exit.
+	if os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" {
+		d.fail("display", "neither WAYLAND_DISPLAY nor DISPLAY is set; rbxrt needs a Wayland or X11 session")
 	} else {
-		d.ok("display", "DISPLAY="+os.Getenv("DISPLAY"))
 		runtime.LockOSThread()
 		info, err := hostabi.ProbeGraphics()
 		runtime.UnlockOSThread()
 		if err != nil {
 			d.fail("graphics", err.Error())
 		} else {
+			switch hostabi.DisplayPlatform() {
+			case "wayland":
+				d.ok("display", "native Wayland, WAYLAND_DISPLAY="+os.Getenv("WAYLAND_DISPLAY"))
+			default:
+				d.ok("display", "X11, DISPLAY="+os.Getenv("DISPLAY"))
+			}
 			d.ok("graphics", fmt.Sprintf("EGL %s (%s), %s", info.EGLVersion, info.EGLVendor, info.GLVersion))
 			switch {
 			case strings.Contains(info.GLRenderer, "zink"):

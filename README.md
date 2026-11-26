@@ -36,9 +36,14 @@ An *instance* is a directory with one Roblox installation:
   verifies the APK, extracts the engine when the APK is newer, and launches it
   in a window until Ctrl-C. The engine's own log is in
   `<instance>/data/appData/logs/`.
-- `rbxrt doctor [<instance>]` checks the platform, the X11 display, the real
+- `rbxrt doctor [<instance>]` checks the platform, the display, the real
   EGL/GLES stack (and whether Mesa runs it on zink/Vulkan), reachability of the
   settings CDN and the mirror, and the instance's APK and free disk space.
+
+Display: on a Wayland session rbxrt opens a native Wayland window (xdg-shell,
+Mesa's Wayland EGL platform); otherwise it uses X11. `RBXRT_DISPLAY=wayland`,
+`x11` or `auto` (the default; falls back to X11/Xwayland if native Wayland
+cannot start) picks one explicitly.
 
 What works today: the Roblox start screen renders. Not yet: input (clicks),
 signing in, audio. See `milestone.md`.

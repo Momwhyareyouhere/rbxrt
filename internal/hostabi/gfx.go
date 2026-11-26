@@ -12,18 +12,22 @@ import (
 // The graphics platform layer.
 //
 // Android's platform provides EGL, GLES and the window system; on the host those
-// are Mesa's libEGL, libGLESv2 and Xlib. The runtime does not reimplement a GPU
+// are Mesa's libEGL, libGLESv2 and a native window: a Wayland xdg_toplevel
+// (gfx_wayland.go) or an X11 window (gfx_x11.go). The runtime does not reimplement a GPU
 // driver. Instead it loads the host's real libraries (see hostdl.go) and binds
 // the engine's imports to them, so the engine drives the same Mesa driver a
 // native Linux program would. Two entry points cannot pass straight through
 // because the guest speaks Android's shape, not the host's:
 //
 //   - eglGetDisplay: the engine asks for EGL_DEFAULT_DISPLAY; we hand back the
-//     X11 platform display we opened, so the chosen platform is deterministic
-//     even on a Wayland session (where Mesa's default could be Wayland, which
-//     our X11 window is not a valid surface for).
-//   - eglCreateWindowSurface: the engine passes an ANativeWindow; Mesa's X11
-//     platform wants an X11 Window (XID). We translate between the two.
+//     platform display (EGL_PLATFORM_WAYLAND or EGL_PLATFORM_X11) for the
+//     window we opened, so the platform always matches the window.
+//   - eglCreateWindowSurface: the engine passes an ANativeWindow; Mesa wants a
+//     wl_egl_window* or an X11 Window (XID). We translate between the two.
+//
+// The window system is chosen by RBXRT_DISPLAY: "wayland", "x11", or "auto"
+// (the default: native Wayland when WAYLAND_DISPLAY is set, falling back to
+// X11/Xwayland if that cannot start).
 //
 // Everything else — the other egl* calls and every gl* call — is bound directly
 // to Mesa, which is also why the engine's floating-point and wider argument
@@ -49,15 +53,13 @@ func EGLCounts() (inits, contexts, makeCurrents, swaps int64) {
 		atomic.LoadInt64(&eglMakeCurrentCount), atomic.LoadInt64(&eglSwapCount)
 }
 
-const (
-	eglPlatformX11EXT    = 0x31D5
-	windowFormatRGBA8888 = 1
-)
+const windowFormatRGBA8888 = 1
 
 // hostWindow describes one ANativeWindow handed to the engine. It records which
-// X11 window backs it so eglCreateWindowSurface can translate.
+// native window (wl_egl_window* or XID) backs it so eglCreateWindowSurface can
+// translate.
 type hostWindow struct {
-	xid    uintptr
+	native uintptr
 	w, h   int
 	format int
 }
@@ -66,19 +68,14 @@ type gfxState struct {
 	ready   bool
 	backend string
 
-	xlib, egl, gles uintptr
+	egl, gles uintptr
 
-	xDisplay uintptr
-	xWindow  uintptr
-	width    int
-	height   int
-
-	fnXOpenDisplay        uintptr
-	fnXDefaultRootWindow  uintptr
-	fnXCreateSimpleWindow uintptr
-	fnXMapWindow          uintptr
-	fnXStoreName          uintptr
-	fnXFlush              uintptr
+	platform      string  // "wayland" or "x11"
+	eglPlatform   uintptr // EGL_PLATFORM_* for eglGetPlatformDisplayEXT
+	nativeDisplay uintptr // wl_display* or Display*
+	nativeWindow  uintptr // wl_egl_window* or Window
+	width         int
+	height        int
 
 	fnEglGetDisplay          uintptr
 	fnEglGetPlatformDisplay  uintptr
@@ -122,8 +119,12 @@ func GraphicsEnabled() bool { return gfx.ready }
 // InitGraphics succeeds).
 func WindowSize() (int, int) { return gfx.width, gfx.height }
 
+// DisplayPlatform names the window system in use ("wayland" or "x11"; empty
+// before InitGraphics succeeds).
+func DisplayPlatform() string { return gfx.platform }
+
 // InitGraphics binds the engine's graphics imports to the host's real EGL/GLES
-// implementation and opens one X11 window for it to render into. It is
+// implementation and opens one native window for it to render into. It is
 // idempotent. On failure nothing is registered and the engine will still trap,
 // loudly, at the first graphics call — the runtime never pretends to render.
 func InitGraphics() error {
@@ -140,10 +141,12 @@ func InitGraphics() error {
 		return fmt.Errorf("host dynamic linker (dlopen) not found: rbxrt must be dynamically linked")
 	}
 
-	xlib := hostDlopen("libX11.so.6", rtldNow|rtldGlobal)
-	if xlib == 0 {
-		return fmt.Errorf("cannot dlopen libX11.so.6")
+	w, h := windowSize()
+	if err := openWindow(w, h); err != nil {
+		return err
 	}
+	gfx.width, gfx.height = w, h
+
 	egl := hostDlopen("libEGL.so.1", rtldNow|rtldGlobal)
 	if egl == 0 {
 		return fmt.Errorf("cannot dlopen libEGL.so.1")
@@ -152,36 +155,7 @@ func InitGraphics() error {
 	if gles == 0 {
 		return fmt.Errorf("cannot dlopen libGLESv2.so.2")
 	}
-	gfx.xlib, gfx.egl, gfx.gles = xlib, egl, gles
-
-	gfx.fnXOpenDisplay = hostDlsym(xlib, "XOpenDisplay")
-	gfx.fnXDefaultRootWindow = hostDlsym(xlib, "XDefaultRootWindow")
-	gfx.fnXCreateSimpleWindow = hostDlsym(xlib, "XCreateSimpleWindow")
-	gfx.fnXMapWindow = hostDlsym(xlib, "XMapWindow")
-	gfx.fnXStoreName = hostDlsym(xlib, "XStoreName")
-	gfx.fnXFlush = hostDlsym(xlib, "XFlush")
-	if gfx.fnXOpenDisplay == 0 || gfx.fnXCreateSimpleWindow == 0 || gfx.fnXMapWindow == 0 {
-		return fmt.Errorf("libX11 is missing the window-creation entry points")
-	}
-
-	dpy := callHostC(gfx.fnXOpenDisplay, &[9]uintptr{0})
-	if dpy == 0 {
-		return fmt.Errorf("XOpenDisplay failed")
-	}
-	gfx.xDisplay = dpy
-	root := callHostC(gfx.fnXDefaultRootWindow, &[9]uintptr{dpy})
-
-	w, h := windowSize()
-	win := callHostC(gfx.fnXCreateSimpleWindow, &[9]uintptr{
-		dpy, root, 60, 60, uintptr(w), uintptr(h), 0, 0, 0})
-	if win == 0 {
-		return fmt.Errorf("XCreateSimpleWindow failed")
-	}
-	gfx.xWindow = win
-	callHostC(gfx.fnXStoreName, &[9]uintptr{dpy, win, CString("rbxrt")})
-	callHostC(gfx.fnXMapWindow, &[9]uintptr{dpy, win})
-	callHostC(gfx.fnXFlush, &[9]uintptr{dpy})
-	gfx.width, gfx.height = w, h
+	gfx.egl, gfx.gles = egl, gles
 
 	// Mesa entry points the runtime wraps.
 	gfx.fnEglGetDisplay = hostDlsym(egl, "eglGetDisplay")
@@ -229,10 +203,33 @@ func InitGraphics() error {
 	gfx.ready = true
 
 	if debugGFX {
-		fmt.Fprintf(os.Stderr, "rbxrt: gfx: X11 window %#x %dx%d, libEGL/libGLESv2 loaded\n",
-			win, w, h)
+		fmt.Fprintf(os.Stderr, "rbxrt: gfx: %s window %#x %dx%d, libEGL/libGLESv2 loaded\n",
+			gfx.platform, gfx.nativeWindow, w, h)
 	}
 	return nil
+}
+
+// openWindow opens the native window selected by RBXRT_DISPLAY.
+func openWindow(w, h int) error {
+	hasWayland := os.Getenv("WAYLAND_DISPLAY") != ""
+	hasX11 := os.Getenv("DISPLAY") != ""
+	switch mode := strings.ToLower(os.Getenv("RBXRT_DISPLAY")); mode {
+	case "wayland":
+		return openWayland(w, h)
+	case "x11":
+		return openX11(w, h)
+	case "", "auto":
+		if hasWayland {
+			err := openWayland(w, h)
+			if err == nil || !hasX11 {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "rbxrt: graphics: native Wayland unavailable (%v); using X11 (Xwayland)\n", err)
+		}
+		return openX11(w, h)
+	default:
+		return fmt.Errorf("RBXRT_DISPLAY=%q: want wayland, x11 or auto", mode)
+	}
 }
 
 func windowSize() (int, int) {
@@ -299,31 +296,31 @@ func goEglGetDisplay(nativeDisplay uintptr) uintptr {
 	var d uintptr
 	if gfx.fnEglGetPlatformDisplay != 0 {
 		d = callHostC(gfx.fnEglGetPlatformDisplay,
-			&[9]uintptr{eglPlatformX11EXT, gfx.xDisplay, 0})
+			&[9]uintptr{gfx.eglPlatform, gfx.nativeDisplay, 0})
 	}
 	if d == 0 && gfx.fnEglGetDisplay != 0 {
-		d = callHostC(gfx.fnEglGetDisplay, &[9]uintptr{gfx.xDisplay})
+		d = callHostC(gfx.fnEglGetDisplay, &[9]uintptr{gfx.nativeDisplay})
 	}
 	gfx.eglDisplay = d
 	if debugGFX {
-		fmt.Fprintf(os.Stderr, "rbxrt: gfx: eglGetDisplay(guest=%#x) -> X11 platform display %#x\n",
-			nativeDisplay, d)
+		fmt.Fprintf(os.Stderr, "rbxrt: gfx: eglGetDisplay(guest=%#x) -> %s platform display %#x\n",
+			nativeDisplay, gfx.platform, d)
 	}
 	return d
 }
 
 //go:noinline
 func goEglCreateWindowSurface(display, config, nativeWindow, attribs uintptr) uintptr {
-	xid := nativeWindow
+	native := nativeWindow
 	gfx.mu.Lock()
 	if w, ok := gfx.windows[nativeWindow]; ok {
-		xid = w.xid
+		native = w.native
 	}
 	gfx.mu.Unlock()
-	r := callHostC(gfx.fnEglCreateWindowSurface, &[9]uintptr{display, config, xid, attribs})
+	r := callHostC(gfx.fnEglCreateWindowSurface, &[9]uintptr{display, config, native, attribs})
 	if debugGFX {
-		fmt.Fprintf(os.Stderr, "rbxrt: gfx: eglCreateWindowSurface(anw=%#x) XID=%#x -> %#x\n",
-			nativeWindow, xid, r)
+		fmt.Fprintf(os.Stderr, "rbxrt: gfx: eglCreateWindowSurface(anw=%#x) %s window=%#x -> %#x\n",
+			nativeWindow, gfx.platform, native, r)
 	}
 	return r
 }
@@ -372,6 +369,9 @@ func goEglSwapBuffers(display, surface uintptr) uintptr {
 	if n := atomic.AddInt64(&eglSwapCount, 1); debugGFX && n%60 == 0 {
 		writeStderrRaw(fmt.Sprintf("rbxrt: gfx: swap %d: last 60 frames: %s\n", n, glCallCounts()))
 	}
+	if gfx.platform == "wayland" {
+		waylandPump()
+	}
 	r := callHostC(gfx.fnEglSwapBuffers, &[9]uintptr{display, surface})
 	if debugGFX {
 		fmt.Fprintf(os.Stderr, "rbxrt: gfx: eglSwapBuffers(dpy=%#x surf=%#x) -> %#x (count %d)\n",
@@ -381,12 +381,12 @@ func goEglSwapBuffers(display, surface uintptr) uintptr {
 }
 
 // BindGuestSurface publishes a guest-side stand-in for android.view.Surface as
-// an ANativeWindow backed by this runtime's X11 window. The launch driver hands
+// an ANativeWindow backed by this runtime's native window. The launch driver hands
 // the engine a synthetic Surface handle in its lifecycle callbacks; if the
 // engine passes that handle straight to eglCreateWindowSurface instead of going
 // through ANativeWindow_fromSurface first, the wrapped create-window-surface
-// must still find a real XID behind it. Handles the driver never registers keep
-// their old behaviour (used as an XID verbatim).
+// must still find the real native window behind it. Handles the driver never
+// registers keep their old behaviour (passed to Mesa verbatim).
 func BindGuestSurface(surface uintptr) {
 	if surface == 0 {
 		return
@@ -403,10 +403,10 @@ func BindGuestSurface(surface uintptr) {
 	if h == 0 {
 		h = 720
 	}
-	gfx.windows[surface] = &hostWindow{xid: gfx.xWindow, w: w, h: h, format: windowFormatRGBA8888}
+	gfx.windows[surface] = &hostWindow{native: gfx.nativeWindow, w: w, h: h, format: windowFormatRGBA8888}
 	if debugGFX {
-		fmt.Printf("rbxrt: gfx: guest surface %#x bound to XID %#x (%dx%d)\n",
-			surface, gfx.xWindow, w, h)
+		fmt.Printf("rbxrt: gfx: guest surface %#x bound to %s window %#x (%dx%d)\n",
+			surface, gfx.platform, gfx.nativeWindow, w, h)
 	}
 }
 
@@ -416,7 +416,7 @@ func goANativeWindowFromSurface(env, surface uintptr) uintptr {
 	p := gfx.nextWin
 	gfx.nextWin += 16
 	gfx.windows[p] = &hostWindow{
-		xid:    gfx.xWindow,
+		native: gfx.nativeWindow,
 		w:      gfx.width,
 		h:      gfx.height,
 		format: windowFormatRGBA8888,
