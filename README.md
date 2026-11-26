@@ -10,28 +10,26 @@ emulator, no virtual machine. Open source and written in Go.
 ## What works
 
 - The Roblox app: home page, friends, menus, search
-- Signing in with **Quick Sign-in**, and staying signed in after a restart
-- Mouse, keyboard and scroll wheel, with your own keyboard layout (German,
-  French, …, including AltGr and dead keys)
-- Native Wayland window (with title bar) or X11
-- GPU rendering through Mesa (on Vulkan via zink)
+- Signing in with Quick Sign-in, and staying signed in
+- Mouse and keyboard, in your own keyboard layout
+- Wayland and X11
+- Hardware-accelerated graphics
 
 Not yet:
 
-- Signing in with a password (Roblox's captcha needs a web view rbxrt doesn't
-  have; use Quick Sign-in instead)
-- Joining games has not been tested, and so neither has game audio
-- Text you type into a box only appears after you click out of it
-- Microphone, camera and hardware video decoding
+- Signing in with a password (use Quick Sign-in instead)
+- Joining games and game audio (not tested yet)
+- Text you type only shows up after you click out of the text box
+- Voice chat and camera
 
 ## Requirements
 
 - Linux on x86_64 (64-bit Intel/AMD)
 - A Wayland or X11 desktop
-- Mesa graphics drivers with OpenGL ES 3 (most Linux systems)
+- Mesa graphics drivers (installed on most Linux systems)
 - Go 1.27 or newer, to build
 - About 500 MB of free disk space per instance
-- Optional: PulseAudio or PipeWire (sound), libxkbcommon (keyboard layouts)
+- For sound: PipeWire or PulseAudio
 
 ## Getting started
 
@@ -41,9 +39,8 @@ go build -o rbxrt ./cmd/rbxrt
 ./rbxrt run ~/rbxrt-instance   # downloads Roblox on first run, then starts it
 ```
 
-The first `run` downloads the latest Roblox Android app (about 230 MB) and
-checks that it is really signed by Roblox before using it. Close the window or
-press Ctrl-C to quit.
+The first `run` downloads the Roblox Android app (about 230 MB) and checks
+that it really comes from Roblox. Close the window or press Ctrl-C to quit.
 
 To update Roblox later:
 
@@ -71,7 +68,7 @@ Settings are environment variables, for example
 | --- | --- |
 | `RBXRT_WINDOW_WIDTH`, `RBXRT_WINDOW_HEIGHT` | Window size in pixels (default 1280×720) |
 | `RBXRT_DISPLAY=wayland` / `x11` | Force a window system (default: Wayland if available) |
-| `RBXRT_GFX_BACKEND=mesa` | Use Mesa's own GL driver instead of zink/Vulkan |
+| `RBXRT_GFX_BACKEND=mesa` | Try a different graphics driver (if you see glitches) |
 | `RBXRT_NO_SESSION=1` | Don't save or restore your login |
 
 ## Folders
@@ -97,25 +94,17 @@ An *instance* is one Roblox installation. You can have several.
 
 ## Security
 
-rbxrt only runs an app that is cryptographically proven to be signed by
-Roblox: it checks the APK's v2/v3 signature over the whole file and pins
-Roblox's signing certificate
-(`44932ea35a17a267372d71b54d1a0cb3da0dca5113e94406ae2fe18090ba1477`).
-Everything is built from public file formats and public facts; no Roblox code
-is included in this repository.
+rbxrt only runs a Roblox app whose signature proves it comes from Roblox, and
+checks it before every start. No Roblox code is included in this repository.
 
 ## Status
 
-- [x] Verify and load the Android engine (`libroblox.so`)
-- [x] Android runtime: Java bridge (JNI), threads, files, network
-- [x] Graphics: Wayland and X11 windows, Mesa GLES
-- [x] Input: mouse, keyboard, text boxes, keyboard layouts
-- [x] Android platform libraries: audio (AAudio on PulseAudio/PipeWire), media,
-      thermal, networking
-- [x] Engine task scheduler and Java method calls, with no patches to the engine
+- [x] Download and verify Roblox
+- [x] Start the Roblox app
+- [x] Graphics, mouse and keyboard
 - [x] Sign in and stay signed in
-- [ ] Password sign-in (needs a web view for Roblox's captcha)
-- [ ] Joining games, game audio
+- [ ] Password sign-in
+- [ ] Joining games and game audio
 - [ ] Launcher, multiple instances, Flatpak/AppImage packages
 
 Progress notes are in [milestone.md](milestone.md); how it all works is in
