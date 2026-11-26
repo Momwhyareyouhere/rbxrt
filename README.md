@@ -53,7 +53,11 @@ Input goes in through the same natives Roblox's Android Java layer uses (see
 `cmd/rbxrt/input.go`): `nativePassMouseMove`/`Button`/`Wheel` for the mouse
 (Roblox treats it like a Chromebook mouse), `nativePassKeyEvent` for keys, and
 the on-screen-keyboard path (`showKeyboard` → `syncTextboxTextAndCursorPosition2`
-→ `nativePassText`) for typing into a focused text box. One quirk remains: the
+→ `nativePassText`) for typing into a focused text box. Keys follow the user's
+own keyboard layout, read from the compositor (Wayland) or the X server via
+libxkbcommon: German, French and other layouts type their own characters,
+including AltGr and dead keys (`^` + `e` = `ê`). Without libxkbcommon, US is
+assumed. One quirk remains: the
 text in a focused box is drawn only after it loses focus (Android Roblox expects
 its native keyboard overlay to draw it while editing).
 

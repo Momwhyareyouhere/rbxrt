@@ -584,12 +584,28 @@ func wlOnPointerAxis(data, pointer, time, axis, value uintptr) {
 		Scroll: wlFixed(value) / 10}) // one wheel notch is 10 units
 }
 
-// The keymap is not needed: keys arrive as evdev codes, which input.go maps
-// to Android key codes. The fd must still be closed.
+// The compositor's keymap (the user's keyboard layout) drives the characters
+// keys type; see xkb.go. It arrives as a file to map; the fd must be closed.
 //
 //go:noinline
 func wlOnKeymap(data, keyboard, format, fd, size uintptr) {
-	syscall.Close(int(int32(fd)))
+	f := int(int32(fd))
+	defer syscall.Close(f)
+	if uint32(format) != 1 || size == 0 { // WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1
+		return
+	}
+	b, err := syscall.Mmap(f, 0, int(uint32(size)), syscall.PROT_READ, syscall.MAP_PRIVATE)
+	if err != nil {
+		return
+	}
+	text := b
+	if i := len(text) - 1; i >= 0 && text[i] == 0 {
+		text = text[:i]
+	}
+	if !xkbLoadKeymapText(text) {
+		fmt.Fprintf(os.Stderr, "rbxrt: input: could not load the keyboard layout; using US\n")
+	}
+	syscall.Munmap(b)
 }
 
 //go:noinline
@@ -625,4 +641,5 @@ func wlOnKey(data, keyboard, serial, time, key, state uintptr) {
 //go:noinline
 func wlOnModifiers(data, keyboard, serial, depressed, latched, locked, group uintptr) {
 	setCapsLock(uint32(locked)&2 != 0) // xkb "Lock" modifier
+	xkbUpdateMask(depressed, latched, locked, group)
 }

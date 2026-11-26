@@ -171,6 +171,12 @@ found by reading the APK's dex (`uk.f` and `h` call them):
 GameActivity's `onTouchEventNative` accepts events but the app ignores them;
 Roblox does not read input from the native-app-glue queue.
 
+Keyboard layouts come from libxkbcommon (`internal/hostabi/xkb.go`): the
+Wayland compositor's keymap or the X server's, with the locale's compose
+table for dead keys. Letters and digits get the Android key code of the
+key's label in that layout (German Z key = `KEYCODE_Z`), as Android's
+KeyCharacterMap does.
+
 Two JNI-layer fixes were needed: static `CallStatic*Method` calls decoded their
 first argument as if they were the `A` (jvalue array) form, and `byte[]` was
 not implemented, so every `String.getBytes("UTF-8")` (the engine's jstring →

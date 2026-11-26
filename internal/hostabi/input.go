@@ -175,9 +175,18 @@ func pointerAt() (float32, float32) {
 
 // keyEvent queues a key press or release given its evdev code. Modifier keys
 // also update the meta state the following keys report.
+//
+// The character and, for letters and digits, the key code follow the user's
+// keyboard layout (xkb.go); without libxkbcommon a US layout is assumed.
 func keyEvent(evdev int, down bool) {
 	kc := evdevToAndroid(evdev)
-	if kc == 0 {
+	ch, base, haveLayout := xkbTranslate(evdev, down)
+	if haveLayout {
+		if k := keysymAndroid(base); k != 0 {
+			kc = k
+		}
+	}
+	if kc == 0 && ch == 0 {
 		return
 	}
 	input.mu.Lock()
@@ -190,8 +199,16 @@ func keyEvent(evdev int, down bool) {
 	}
 	meta := input.meta
 	input.mu.Unlock()
+	if !haveLayout {
+		ch = keyRune(evdev, meta)
+	}
+	// Shortcuts (Ctrl, left Alt, Super) type nothing. AltGr (right Alt) is
+	// how many layouts type @, {, €, so it keeps its character.
+	if meta&(metaCtrlOn|metaAltLeft|metaMetaOn) != 0 || ch < ' ' || ch == 0x7f {
+		ch = 0
+	}
 	pushInput(InputEvent{Kind: InputKey, Down: down, KeyCode: kc, ScanCode: evdev,
-		Meta: meta, Unicode: keyRune(evdev, meta)})
+		Meta: meta, Unicode: ch})
 }
 
 // setCapsLock records Caps Lock from the display server's lock state.
@@ -265,12 +282,13 @@ var evdevAndroid = map[int]int{
 	102: 122, 103: 19, 104: 92, 105: 21, 106: 22, 107: 123, 108: 20, 109: 93, // HOME UP PGUP LEFT RIGHT END DOWN PGDN
 	110: 124, 111: 112, 119: 121, // INSERT, DELETE -> FORWARD_DEL, PAUSE -> BREAK
 	125: 117, 126: 118, 127: 82, // LMETA RMETA COMPOSE -> MENU
+	86: 73, // 102ND (the extra key left of Z on ISO keyboards: < > |) -> BACKSLASH
 }
 
 func evdevToAndroid(evdev int) int { return evdevAndroid[evdev] }
 
-// keyRune is the character a key produces on a US layout. The engine's text
-// boxes read KeyEvent.getUnicodeChar; a full keymap (xkb) is not consulted.
+// keyRune is the character a key produces on a US layout: the fallback when
+// libxkbcommon is not available.
 func keyRune(evdev, meta int) rune {
 	const lower = "1234567890-=" // evdev 2..13
 	const upper = "!@#$%^&*()_+"

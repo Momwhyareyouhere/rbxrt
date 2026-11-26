@@ -64,10 +64,12 @@ var textInput struct {
 	mu     sync.Mutex
 	active uintptr
 	text   map[uintptr][]rune
+	typed  map[int]bool // keys whose press typed into the box: swallow their release
 }
 
 func setupTextInput() {
 	textInput.text = map[uintptr][]rune{}
+	textInput.typed = map[int]bool{}
 	hostabi.SetFakeMethodArgFunc(classGLJava, "showKeyboard", func(box uintptr) uintptr {
 		textInput.mu.Lock()
 		textInput.active = box
@@ -102,9 +104,12 @@ func editText(e hostabi.InputEvent) (box uintptr, text []rune, changed, enter, c
 		keycodeDel     = 67
 		keycodeEnter   = 66
 		keycodeNumpadE = 160
-		modifiers      = 0x1000 | 0x2 | 0x10000 // META_CTRL_ON | META_ALT_ON | META_META_ON
 	)
 	t := textInput.text[box]
+	if !e.Down && textInput.typed[e.ScanCode] {
+		delete(textInput.typed, e.ScanCode)
+		return box, t, false, false, true
+	}
 	switch {
 	case e.KeyCode == keycodeEnter || e.KeyCode == keycodeNumpadE:
 		return box, t, false, e.Down, true
@@ -115,13 +120,11 @@ func editText(e hostabi.InputEvent) (box uintptr, text []rune, changed, enter, c
 			return box, t, true, false, true
 		}
 		return box, t, false, false, true
-	case e.Unicode >= ' ' && e.Meta&modifiers == 0:
-		if e.Down {
-			t = append(t, e.Unicode)
-			textInput.text[box] = t
-			return box, t, true, false, true
-		}
-		return box, t, false, false, true
+	case e.Down && e.Unicode >= ' ': // 0 for shortcuts; AltGr characters (@, €) count
+		t = append(t, e.Unicode)
+		textInput.text[box] = t
+		textInput.typed[e.ScanCode] = true
+		return box, t, true, false, true
 	}
 	return box, t, false, false, false
 }

@@ -107,6 +107,10 @@ func x11SetupInput(xlib uintptr) {
 	dpy, win := x11.display, x11.window
 	callHostC(x11.fnXSelectInput, &[9]uintptr{dpy, win, x11KeyPressMask | x11KeyReleaseMask |
 		x11ButtonPressMask | x11ButtonReleaseMask | x11LeaveWindowMask | x11PointerMotionMask})
+	// The user's keyboard layout, from the X server (xkb.go).
+	if !xkbInitX11(dpy) {
+		fmt.Fprintf(os.Stderr, "rbxrt: input: could not read the keyboard layout; using US\n")
+	}
 	// Held keys auto-repeat as press events only, not release/press pairs.
 	if f := hostDlsym(xlib, "XkbSetDetectableAutoRepeat"); f != 0 {
 		callHostC(f, &[9]uintptr{dpy, 1, 0})
