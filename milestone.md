@@ -206,7 +206,12 @@ Only five `long double` math helpers are still bound to traps.
 - Text typed into a focused text box shows up only after the box loses focus:
   on Android the engine hides it while the native keyboard overlay would be
   drawing it.
-- Signing in needs a Roblox session; the runtime does not provide one.
+- Password sign-in stops at Roblox's security challenge
+  (`ChallengeHybridWebView`): there is no Android web view. Quick Sign-in
+  works, and the session persists across restarts (session.go).
+- At start-up the Lua app briefly assumes a signed-in user, gets 401 from
+  `app-launch-info`, and polls `friends/v1/users/0/friends/online` until
+  rate-limited (429) when nobody is signed in.
 - The engine's own Vulkan renderer does not load ("Unable to load Vulkan API");
   it falls back to GLES, which runs on Vulkan through zink anyway.
 - Audio is untested in the engine: FMOD opens its output only when a game

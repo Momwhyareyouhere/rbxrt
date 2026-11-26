@@ -5,7 +5,7 @@ import (
 	"unsafe"
 )
 
-// Java byte arrays. The engine moves text across JNI as byte[]: it turns a
+// Java byte arrays, and Object[] (the engine hands Java a String[] of cookies). The engine moves text across JNI as byte[]: it turns a
 // Java String into UTF-8 with String.getBytes("UTF-8") and reads the result
 // with GetArrayLength/GetByteArrayElements, and it hands Java text the other
 // way with NewByteArray/SetByteArrayRegion (e.g. a text box's contents for
@@ -18,6 +18,9 @@ import (
 // JNI table indices for the byte[] subset.
 const (
 	jniArrGetLength           = 171
+	jniArrNewObject           = 172
+	jniArrGetObjectElement    = 173
+	jniArrSetObjectElement    = 174
 	jniArrNewByte             = 176
 	jniArrGetByteElements     = 184
 	jniArrReleaseByteElements = 192
@@ -28,8 +31,31 @@ const (
 var jniArrays = struct {
 	sync.Mutex
 	m    map[uintptr][]byte
+	objs map[uintptr][]uintptr // object arrays (e.g. String[])
 	next uintptr
-}{m: map[uintptr][]byte{}, next: 0x3000000}
+}{m: map[uintptr][]byte{}, objs: map[uintptr][]uintptr{}, next: 0x3000000}
+
+// newObjectArray creates an Object[] of n elements, each set to init.
+func newObjectArray(n int, init uintptr) uintptr {
+	a := make([]uintptr, n)
+	for i := range a {
+		a[i] = init
+	}
+	jniArrays.Lock()
+	defer jniArrays.Unlock()
+	h := jniArrays.next
+	jniArrays.next += 16
+	jniArrays.objs[h] = a
+	return h
+}
+
+// ObjectArrayElements returns the elements of an Object[] the engine passed
+// to Java (nil if h is not a known object array).
+func ObjectArrayElements(h uintptr) []uintptr {
+	jniArrays.Lock()
+	defer jniArrays.Unlock()
+	return append([]uintptr(nil), jniArrays.objs[h]...)
+}
 
 // newByteArray creates a byte[] holding a copy of b and returns its handle.
 func newByteArray(b []byte) uintptr {
@@ -65,6 +91,27 @@ func jniArrayFn(id, a1, a2, a3, a4 uintptr) uintptr {
 		if b, ok := byteArray(a1); ok {
 			return uintptr(len(b))
 		}
+		jniArrays.Lock()
+		o, ok := jniArrays.objs[a1]
+		jniArrays.Unlock()
+		if ok {
+			return uintptr(len(o))
+		}
+	case jniArrNewObject: // (length, elementClass, initialElement)
+		if int32(a1) >= 0 {
+			return newObjectArray(int(int32(a1)), a3)
+		}
+	case jniArrGetObjectElement, jniArrSetObjectElement: // (array, index[, value])
+		jniArrays.Lock()
+		defer jniArrays.Unlock()
+		o, i := jniArrays.objs[a1], int(int32(a2))
+		if i < 0 || i >= len(o) {
+			return 0
+		}
+		if id == jniArrGetObjectElement {
+			return o[i]
+		}
+		o[i] = a3
 	case jniArrNewByte:
 		if int32(a1) >= 0 {
 			return newByteArray(make([]byte, int32(a1)))

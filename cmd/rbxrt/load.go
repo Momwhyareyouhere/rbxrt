@@ -568,7 +568,7 @@ func javaBootKick(im *loader.Image) (pump func() int) {
 	var session *sessionKeeper
 	signedIn := false
 	if sessionEnabled() {
-		session = &sessionKeeper{call: func(name string, args ...uintptr) uintptr {
+		session = newSessionKeeper(func(name string, args ...uintptr) uintptr {
 			fn, ok := im.Exports["Java_com_roblox_engine_jni_NativeSettingsInterface_"+name]
 			if !ok {
 				return 0
@@ -577,7 +577,9 @@ func javaBootKick(im *loader.Image) (pump func() int) {
 			a[0], a[1] = env, settingsCls
 			copy(a[2:], args)
 			return uintptr(hostabi.CallGuestInt8(fn, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]))
-		}}
+		})
+		session.watchLogin()
+		session.register(im.Exports, env)
 		var user sessionUser
 		if user, signedIn = session.restore(); signedIn {
 			seedSessionUser(user)
@@ -647,7 +649,7 @@ func javaBootKick(im *loader.Image) (pump func() int) {
 	updates := 0
 	return func() int {
 		if session != nil {
-			session.save(false)
+			session.save()
 		}
 		if updates < 1 {
 			updates++
