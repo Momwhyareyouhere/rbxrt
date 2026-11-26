@@ -236,6 +236,10 @@ func jniCallInstance(_ uintptr, obj, mid, arg uintptr) uintptr {
 			return v
 		}
 	}
+	if v, ok := jlangInstance(obj, m); ok {
+		jniTraceCall("method", cls, m.name, v)
+		return v
+	}
 	jniReport("method call", jniMember{cls, m.name, m.sig})
 	return 0
 }
@@ -260,6 +264,10 @@ func jniCallStatic(cls, mid, arg uintptr) uintptr {
 		return v
 	}
 	if v, ok := jniMethodValue(name, m.name); ok {
+		jniTraceCall("static", name, m.name, v)
+		return v
+	}
+	if v, ok := jlangStatic(name, m, arg); ok {
 		jniTraceCall("static", name, m.name, v)
 		return v
 	}

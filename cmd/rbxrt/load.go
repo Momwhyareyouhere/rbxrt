@@ -126,12 +126,6 @@ func cmdLoad(args []string) error {
 		fmt.Printf("unresolved: 0 (every strong function provided; no traps)\n")
 	}
 
-	// Guest code is about to run (constructors and/or JNI_OnLoad). Apply the
-	// telemetry stop-gap first: the constructors start worker threads, and those
-	// threads must see the patch too. See applyTelemetryWorkaround.
-	if doInit || jni {
-		applyTelemetryWorkaround(im.Bias)
-	}
 	plantBreakpoints(im.Bias)
 	gdbStop(im.Bias)
 
@@ -232,9 +226,7 @@ func dumpArena() {
 }
 
 // callJNIOnLoad drives the guest's JNI_OnLoad against the host JNI environment
-// and reports what it does. The telemetry stop-gap is applied by cmdLoad before
-// any guest code runs, so the constructors' worker threads see it too; see
-// applyTelemetryWorkaround.
+// and reports what it does.
 func callJNIOnLoad(im *loader.Image) error {
 	vm := hostabi.JavaVM()
 	jniOnLoad, ok := im.Exports["JNI_OnLoad"]
@@ -587,11 +579,6 @@ func javaBootKick(im *loader.Image) (pump func() int) {
 	}
 	initParams := hostabi.NewFakeObject(classInitArgs)
 	call("nativeAppBridgeV2InitWithParams", initParams)
-	// Disable the generated telemetry sink itself during the pre-scheduler
-	// phase. Entering its exception machinery is what produces the int3 at
-	// 0x6d43424; telemetry is not required to create the graphics context.
-	stubReturn0(im.Bias, activeProfile.telemetrySink, "telemetry sink")
-	nopCall(im.Bias, activeProfile.keyEventProbe, "key-event probe")
 	callArgs("com/roblox/engine/jni/NativeGLInterface", "setTaskSchedulerBackgroundMode",
 		env, cls, 0, hostabi.NewJavaString("ASMA.start"))
 	call("nativeAppBridgeV2StartAppWithParams", hostabi.NewFakeObject(classStartApp))
@@ -608,7 +595,6 @@ func javaBootKick(im *loader.Image) (pump func() int) {
 	if !startGame {
 		// Java sends a second surface/platform update after the app bridge starts;
 		// this is the notification that normally drives the app render view.
-		nopCall(im.Bias, activeProfile.luaStartKeyProbe, "Lua-start key probe")
 		// Java calls this once a user has logged in ("initializeLuaAppWith
 		// LoggedInUser"). The runtime has no Roblox session, so by default it
 		// launches logged out, as a fresh install does: the Lua app then shows
@@ -626,9 +612,6 @@ func javaBootKick(im *loader.Image) (pump func() int) {
 	callArgs("com/roblox/engine/jni/NativeGLInterface", "nativeScheduleOnFirstFrame",
 		env, cls, hostabi.NewFakeObject("java/lang/Runnable"))
 	if startGame {
-		// StartGame has the same synthetic key-event probe as StartApp, but at
-		// its own call site. There is no Android input queue in the host.
-		nopCall(im.Bias, activeProfile.startGameKeyProbe, "StartGame key-event probe")
 		call("nativeAppBridgeV2StartGameWithParam",
 			hostabi.NewFakeObject("com/roblox/engine/jni/autovalue/StartGameParams"))
 		callArgs("com/roblox/engine/jni/NativeGLInterface", "nativeAppBridgeV2UpdateSurfaceGameWithPlatformParams",
@@ -799,97 +782,6 @@ func argNote(a []uintptr) string {
 		out += fmt.Sprintf(" arg=%#x", v)
 	}
 	return out
-}
-
-// applyTelemetryWorkaround keeps the engine's telemetry natives from recursing
-// before their thread context exists. RBXRT_PATCH_REG selects the variant:
-//
-//	global (default) - force the shared 0x2de3c50 predicate to report a context.
-//	family           - only NOP the eight per-wrapper branches; leaves 0x2de3c50
-//	                   truthful for the thread-registration helpers.
-//	off              - apply nothing; JNI_OnLoad will recurse and crash.
-//
-// "off" exists so the failure stays reproducible, and every enabled variant
-// announces itself: this is a stop-gap, not the engine's natural behaviour.
-func applyTelemetryWorkaround(bias uintptr) {
-	mode := os.Getenv("RBXRT_PATCH_REG")
-	if mode == "" {
-		mode = "global"
-	}
-	switch mode {
-	case "off":
-		fmt.Fprintf(os.Stderr, "rbxrt: WARNING: telemetry workaround disabled (-off); "+
-			"JNI_OnLoad will recurse through the TelemetryBridge wrappers and crash\n")
-	case "family":
-		if err := patchTelemetryFamily(bias); err != nil {
-			fmt.Fprintf(os.Stderr, "rbxrt: telemetry workaround failed: %v\n", err)
-			return
-		}
-		fmt.Fprintf(os.Stderr, "rbxrt: WARNING: telemetry workaround active (family); "+
-			"the TelemetryBridge wrappers assume a thread context that does not exist yet\n")
-	default:
-		if err := patchTelemetryGlobal(bias); err != nil {
-			fmt.Fprintf(os.Stderr, "rbxrt: telemetry workaround failed: %v\n", err)
-			return
-		}
-		fmt.Fprintf(os.Stderr, "rbxrt: WARNING: telemetry workaround active (global); "+
-			"the engine's thread telemetry registration is bypassed until the task "+
-			"scheduler is brought up\n")
-	}
-}
-
-// telemetrySites lists, in the guest image's own offsets, the conditional
-// branches that the TelemetryBridge native family takes when the engine's
-// per-thread "context present" check (0x2de3c50) reports false. The family is
-// the eight generated Java_..._TelemetryBridge_* wrappers at 0x6d4042c through
-// 0x6d40e20: each does
-//
-//	call 0x2de3c50      ; al = (*(ctx2+0x28) != 0), i.e. "context present?"
-//	test %al,%al
-//	je   <unregistered> ; builds a closure and calls *envobj->table[i]
-//
-// With no established context (our bare JNI_OnLoad) al is always 0, so the
-// "unregistered" path runs and the wrapper dispatches through the same table
-// slot it lives in, recursing into itself until the guest stack is exhausted.
-// Each entry below is the address and encoded length of the `je`.
-// The per-build sites live in buildProfile.telemetrySites (profile.go).
-
-// patchTelemetryFamily replaces each family branch with NOPs so the wrappers
-// always take their normal (context present) path. This is deliberately
-// narrow: the shared 0x2de3c50 predicate keeps reporting the true state to
-// every other caller, in particular the thread-registration helpers around
-// 0x2244880 that populate the sampler's per-thread slot table.
-func patchTelemetryFamily(bias uintptr) error {
-	sites := activeProfile.telemetrySites
-	if len(sites) == 0 {
-		return fmt.Errorf("no telemetry sites located in build %s", activeProfile.version)
-	}
-	for _, s := range sites {
-		nops := make([]byte, s.n)
-		for i := range nops {
-			nops[i] = 0x90
-		}
-		if err := hostabi.PatchGuestChecked(bias+s.off, nops, isJe); err != nil {
-			return fmt.Errorf("telemetry site +%#x: %w", s.off, err)
-		}
-	}
-	fmt.Fprintf(os.Stderr, "rbxrt: patched %d telemetry dispatch site(s) to take the context-present path\n", len(sites))
-	return nil
-}
-
-// patchTelemetryGlobal is the coarse variant of the workaround: it forces
-// 0x2de3c50 itself to report "context present" for every caller. Kept for
-// A/B comparison because it also disables the sampler's thread registration.
-func patchTelemetryGlobal(bias uintptr) error {
-	off := activeProfile.telemetryPredicate
-	if off == 0 {
-		return fmt.Errorf("telemetry predicate not located in build %s", activeProfile.version)
-	}
-	if err := hostabi.PatchGuest(bias+off, []byte{0xb0, 0x01, 0xc3}); err != nil {
-		return err
-	}
-	fmt.Fprintf(os.Stderr, "rbxrt: patched %#x -> return true (global)\n", off)
-	return nil
 }
 
 // dumpMapsNear prints /proc/self/maps entries for the 512 MiB window above the
