@@ -277,6 +277,8 @@ RBXRT_BOOT_WATCHDOG=<secs>  # report stuck guest threads after this long (30)
 RBXRT_LAUNCH_HOLD_SECS=<n>  # keep rendering this long after boot (15)
 RBXRT_HOLD_DUMP=1           # at the end of the hold, list every guest thread
 RBXRT_FETCH_SETTINGS=1      # pass the live AndroidApp flags from Roblox's CDN
+RBXRT_CLIENT_SETTINGS_FILE=<f> # use a saved {"applicationSettings":{...}} instead
+RBXRT_LUA_APP_LOGGED_IN=1   # boot as if a user were logged in (StartLuaAppDM)
 ```
 
 With `RBXRT_BOOT` the data directory is prepared from the APK (`assets/content`,

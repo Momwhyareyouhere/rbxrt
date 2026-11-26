@@ -137,8 +137,32 @@ startup path, which does not complete here yet:
   `stepDataModelJob: No DM yet`: the Lua app's DataModel loads (patch verified,
   `Mobile.rbxl` read) but is never handed to the render job.
 
-Next: find why `TimerTickerJob` never ticks and what binds the DataModel to the
-render job under the live flags.
+Root causes found since (flag bisection with `RBXRT_CLIENT_SETTINGS_FILE`):
+
+- **`FFlagVideoCaptureUseNewService6`** makes `ViewRbx::bindWorkspace` wait on
+  the new video-capture service, which on Android sits on MediaCodec/AImageReader
+  (not provided by this runtime). The render job waits for that bind
+  (`scheduleRender`), the task scheduler's frame never ends, and with it the
+  `TimerTickerJob` that would release the startup throttle - the "timer never
+  fires" above was a consequence.
+- **`DFFlagUseVisBugChecks`** divides by a zero viewport aspect in software
+  occlusion setup (integer divide fault).
+- **Storage directories.** RbxStorage needs the app's cache directory; the boot
+  now passes files/cache/external directories (`nativeSetFilesDirectory`,
+  `nativeSetCacheDirectory`, `nativeSetExternalDirectory`,
+  `nativeSetBaseDataDirectories`), which fixed an `RBXCRASH` ("Path does not
+  exist").
+- With those two flags and `FFlagSlowDownRendering` off, the live settings run
+  cleanly and present ~700 frames per hold. With `FFlagSlowDownRendering` on,
+  the engine still crashes intermittently (varying sites) - not yet understood.
+- The boot no longer calls `nativeAppBridgeStartLuaAppDM` ("initialize with the
+  logged-in user") unless `RBXRT_LUA_APP_LOGGED_IN=1`: the runtime has no
+  session, and claiming one sent the app to a logged-in home whose requests all
+  fail with 401.
+
+Still open: under every configuration the frame carries ~7 draw calls and no
+visible UI; the app reaches `Landing` but its 2D UI is not drawn. Next: find
+why the GUI layer renders nothing.
 
 Runtime fixes made on the way (all with tests):
 

@@ -143,6 +143,9 @@ type GuestThreadState struct { //nolint:revive // exported for cmd/rbxrt
 	RBP      uintptr
 	Depth    int
 	StackTop uintptr
+	// Thread is the guest's pthread_self() for this thread (its goroutine),
+	// which the engine's own log prints in its thread-id column (low bits).
+	Thread uintptr
 }
 
 // GuestFrameChain walks a sampled guest frame pointer, stopping at the guest
@@ -150,19 +153,51 @@ type GuestThreadState struct { //nolint:revive // exported for cmd/rbxrt
 // frame-pointer omission can make the resulting chain incomplete.
 func GuestFrameChain(rbp, stackTop uintptr, max int) []uintptr {
 	var out []uintptr
+	onStack := rbp >= stackTop-guestStackSize && rbp <= stackTop-16
+	limit := stackTop - 16
+	if !onStack {
+		// The thread is on a stack the engine allocated itself (a task
+		// fiber), so its bounds are unknown: follow the chain while it stays
+		// readable and ascending, within 16 MiB of where it started.
+		limit = rbp + 16<<20
+	}
 	for i := 0; i < max && rbp != 0; i++ {
-		if rbp < stackTop-guestStackSize || rbp > stackTop-16 || rbp&7 != 0 {
+		if rbp&7 != 0 || rbp > limit {
 			break
 		}
-		next := *(*uintptr)(unsafe.Pointer(rbp))
-		out = append(out, *(*uintptr)(unsafe.Pointer(rbp + 8)))
-		if next <= rbp || next > stackTop-16 {
+		next, ok1 := safeRead64(rbp)
+		ret, ok2 := safeRead64(rbp + 8)
+		if !ok1 || !ok2 {
+			break
+		}
+		out = append(out, ret)
+		if next <= rbp || next > limit {
 			break
 		}
 		rbp = next
 	}
 	return out
 }
+
+// safeRead64 reads a word of this process's memory without faulting on an
+// unmapped address (process_vm_readv reports EFAULT instead), for diagnostics
+// that follow untrusted pointers.
+func safeRead64(addr uintptr) (uintptr, bool) {
+	var v uintptr
+	local := syscall.Iovec{Base: (*byte)(unsafe.Pointer(&v)), Len: 8}
+	remote := struct {
+		base uintptr
+		len  uint64
+	}{addr, 8}
+	n, _, errno := syscall.RawSyscall6(sysProcessVMReadv, uintptr(syscall.Getpid()),
+		uintptr(unsafe.Pointer(&local)), 1, uintptr(unsafe.Pointer(&remote)), 1, 0)
+	if errno != 0 || n != 8 {
+		return 0, false
+	}
+	return v, true
+}
+
+const sysProcessVMReadv = 310
 
 // GuestImageOffset maps a guest address in the primary image to an image
 // offset, so a sampled PC can be read against the loaded file.
@@ -179,16 +214,19 @@ func GuestImageOffset(pc uintptr) uintptr {
 func GuestThreadsSnapshot() []GuestThreadState {
 	gsMu.Lock()
 	stacks := make([]*guestStack, 0, len(gsMap))
-	for _, gs := range gsMap {
+	owners := make([]uintptr, 0, len(gsMap))
+	for g, gs := range gsMap {
 		stacks = append(stacks, gs)
+		owners = append(owners, g)
 	}
 	gsMu.Unlock()
 	out := make([]GuestThreadState, 0, len(stacks))
-	for _, gs := range stacks {
+	for i, gs := range stacks {
 		if gs.base == 0 {
 			continue
 		}
 		out = append(out, GuestThreadState{
+			Thread:   owners[i],
 			Base:     gs.base,
 			RetPC:    *(*uintptr)(unsafe.Pointer(gs.base - guestCaptureRetPC)),
 			RBP:      *(*uintptr)(unsafe.Pointer(gs.base - guestCaptureRBP)),

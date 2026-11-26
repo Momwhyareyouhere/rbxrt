@@ -495,6 +495,26 @@ func javaBootKick(im *loader.Image) (pump func() int) {
 		hostabi.NewJavaString("https://www.roblox.com"), hostabi.NewJavaString("https://api.roblox.com"))
 	callOther("com/roblox/engine/jni/NativeSettingsInterface", "nativeSetRobloxChannel",
 		hostabi.NewJavaString("production"))
+	// The app's storage locations, as Android's Context reports them
+	// (getFilesDir, getCacheDir, getExternalFilesDir). Under the live flags
+	// RbxStorage needs a cache directory and throws "Path does not exist"
+	// (an RBXCRASH) if it was never set.
+	settingsCls := hostabi.FindClassHandle("com/roblox/engine/jni/NativeSettingsInterface")
+	dirs := map[string]string{}
+	for _, d := range []string{"files", "cache", "external"} {
+		dirs[d] = filepath.Join(rbxrtDataDir(), d)
+		if err := os.MkdirAll(dirs[d], 0o755); err != nil {
+			fmt.Fprintf(os.Stderr, "rbxrt: create %s directory: %v\n", d, err)
+		}
+	}
+	callArgs("com/roblox/engine/jni/NativeSettingsInterface", "nativeSetFilesDirectory",
+		env, settingsCls, hostabi.NewJavaString(dirs["files"]))
+	callArgs("com/roblox/engine/jni/NativeSettingsInterface", "nativeSetCacheDirectory",
+		env, settingsCls, hostabi.NewJavaString(dirs["cache"]))
+	callArgs("com/roblox/engine/jni/NativeSettingsInterface", "nativeSetExternalDirectory",
+		env, settingsCls, hostabi.NewJavaString(dirs["external"]))
+	callArgs("com/roblox/engine/jni/NativeSettingsInterface", "nativeSetBaseDataDirectories",
+		env, settingsCls, hostabi.NewJavaString(dirs["files"]), hostabi.NewJavaString(dirs["cache"]))
 	callArgs("com/roblox/engine/jni/NativeGLInterface", "nativeInitClientSettings",
 		env, cls, hostabi.NewJavaString(clientSettingsJSON()),
 		hostabi.NewJavaString(""), hostabi.NewJavaString("production"))
@@ -531,7 +551,15 @@ func javaBootKick(im *loader.Image) (pump func() int) {
 		// Java sends a second surface/platform update after the app bridge starts;
 		// this is the notification that normally drives the app render view.
 		nopCall(im.Bias, activeProfile.luaStartKeyProbe, "Lua-start key probe")
-		call("nativeAppBridgeStartLuaAppDM", 0)
+		// Java calls this once a user has logged in ("initializeLuaAppWith
+		// LoggedInUser"). The runtime has no Roblox session, so by default it
+		// launches logged out, as a fresh install does: the Lua app then shows
+		// its own login screen (FIntLuaAppLoginMethod=1 in the live settings)
+		// instead of a logged-in home whose every request fails with 401.
+		// RBXRT_LUA_APP_LOGGED_IN=1 restores the call.
+		if os.Getenv("RBXRT_LUA_APP_LOGGED_IN") != "" {
+			call("nativeAppBridgeStartLuaAppDM", 0)
+		}
 	}
 	callArgs("com/roblox/engine/jni/NativeGLInterface", "nativeAppBridgeV2SendAppEventOnAppReady",
 		env, cls, hostabi.NewJavaString(""), hostabi.NewJavaString(""),
@@ -910,8 +938,8 @@ func dumpGuestThreads(im *loader.Image, tag string) {
 		if what == "" {
 			what = fmt.Sprintf("image+%#x", hostabi.GuestImageOffset(ts.RetPC))
 		}
-		fmt.Fprintf(os.Stderr, "%s: guest thread %#x last-host=%s depth=%d rbp=%#x\n",
-			tag, ts.Base, what, ts.Depth, ts.RBP)
+		fmt.Fprintf(os.Stderr, "%s: guest thread %#x (pthread %#x) last-host=%s depth=%d rbp=%#x\n",
+			tag, ts.Base, ts.Thread, what, ts.Depth, ts.RBP)
 		for i, ret := range hostabi.GuestFrameChain(ts.RBP, ts.StackTop, 24) {
 			fmt.Fprintf(os.Stderr, "  guestframe[%d] pc=%#x image+%#x\n",
 				i, ret, hostabi.GuestImageOffset(ret))

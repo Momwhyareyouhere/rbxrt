@@ -359,8 +359,9 @@ func goEglMakeCurrent(display, draw, read, ctx uintptr) uintptr {
 	atomic.AddInt64(&eglMakeCurrentCount, 1)
 	r := callHostC(gfx.fnEglMakeCurrent, &[9]uintptr{display, draw, read, ctx})
 	if debugGFX {
-		fmt.Fprintf(os.Stderr, "rbxrt: gfx: eglMakeCurrent(dpy=%#x draw=%#x read=%#x ctx=%#x) -> %#x (count %d)\n",
-			display, draw, read, ctx, r, atomic.LoadInt64(&eglMakeCurrentCount))
+		rp, _ := guestCapture()
+		writeStderrRaw(fmt.Sprintf("rbxrt: gfx: eglMakeCurrent(dpy=%#x draw=%#x read=%#x ctx=%#x) -> %#x (count %d) thread=%#x caller=%s\n",
+			display, draw, read, ctx, r, atomic.LoadInt64(&eglMakeCurrentCount), getg(), guestAddr(rp)))
 	}
 	return r
 }

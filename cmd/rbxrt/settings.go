@@ -26,11 +26,23 @@ const clientSettingsURL = "https://clientsettingscdn.roblox.com/v2/settings/appl
 // performance control, deferred DataModel join), which this runtime does not
 // complete yet, so no frames are presented. RBXRT_CLIENT_SETTINGS overrides
 // individual flags, e.g. {"FLogGraphics":"6"} to enable an FLog channel.
+// RBXRT_CLIENT_SETTINGS_FILE supplies a whole settings document instead.
 func clientSettingsJSON() string {
 	flags := map[string]any{}
 	cache := filepath.Join(rbxrtDataDir(), "ClientAppSettings.json")
 	body, source := []byte(nil), ""
 	fetch := os.Getenv("RBXRT_FETCH_SETTINGS") != ""
+	if f := os.Getenv("RBXRT_CLIENT_SETTINGS_FILE"); f != "" {
+		// A saved settings document ({"applicationSettings":{...}}), used
+		// as-is instead of the CDN: for pinning or bisecting a flag set.
+		b, err := os.ReadFile(f)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "rbxrt: RBXRT_CLIENT_SETTINGS_FILE: %v\n", err)
+		} else {
+			body, source = b, f
+		}
+		fetch = false
+	}
 	if fetch {
 		if b, err := fetchClientSettings(); err == nil {
 			body, source = b, "CDN"

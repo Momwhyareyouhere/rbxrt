@@ -1171,7 +1171,12 @@ func tlsSetLocked(g uintptr, key uint32, val uintptr) {
 			return
 		}
 	}
+	if tlsFullReported.CompareAndSwap(false, true) {
+		writeStderrRaw("rbxrt: pthread_setspecific: thread-local table is full; values are being dropped\n")
+	}
 }
+
+var tlsFullReported atomic.Bool
 
 var gsCallLog atomic.Int32
 var gsSetLog atomic.Int32
@@ -1521,6 +1526,18 @@ func releaseThreadLocal(g uintptr) {
 		}
 		if !ran {
 			break
+		}
+	}
+
+	// Destructors routinely store again (emutls and allocator caches call
+	// pthread_setspecific while tearing down). Clear the thread's entries once
+	// more afterwards: the Go runtime reuses g structs, and TLS is keyed by g,
+	// so anything left here would be read by an unrelated later thread as its
+	// own - a freed pointer where it expects its thread-local state.
+	for i := range tlsStore.slots {
+		s := &tlsStore.slots[i]
+		if atomic.LoadUint32(&s.state) == 2 && atomic.LoadUintptr(&s.g) == g {
+			atomic.StoreUintptr(&s.value, 0)
 		}
 	}
 
